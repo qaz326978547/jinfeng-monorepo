@@ -1,0 +1,6 @@
+-- migration-spec/sql/004-create-views.sql
+--
+-- CONFIRMED via read-only introspection (information_schema.VIEWS WHERE TABLE_SCHEMA =
+-- DATABASE() — 0 rows) that the production database has NO views.
+--
+-- 不適用（Not applicable） — no statements to run.

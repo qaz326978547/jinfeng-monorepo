@@ -1,0 +1,16 @@
+-- migration-spec/sql/002-create-indexes.sql
+--
+-- All indexes that exist in the production database (PRIMARY KEY, UNIQUE KEY, and secondary
+-- KEY) are already embedded directly in the `CREATE TABLE` statements in
+-- 001-create-tables.sql — they were captured verbatim via `SHOW CREATE TABLE`, which always
+-- includes index definitions inline.
+--
+-- This file is intentionally a no-op. It exists to satisfy the migration-spec deliverable
+-- checklist and as an explicit place to add NEW indexes in the future without touching
+-- 001-create-tables.sql (which should stay a faithful copy of the original production DDL).
+--
+-- Full index inventory (name / columns / unique) is documented per-table in
+-- migration-spec/database-schema.md and machine-readable in migration-spec/database-schema.json
+-- (top-level `indexes` array, filter by `table` field).
+--
+-- No statements to run.

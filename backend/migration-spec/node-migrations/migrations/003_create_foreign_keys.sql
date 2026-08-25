@@ -1,0 +1,24 @@
+-- migration-spec/sql/003-create-foreign-keys.sql
+--
+-- CONFIRMED via read-only introspection (information_schema.KEY_COLUMN_USAGE WHERE
+-- REFERENCED_TABLE_NAME IS NOT NULL — 0 rows) that the production database currently has
+-- ZERO real, enforced foreign key constraints.
+--
+-- A Laravel migration exists that ATTEMPTS to add one
+-- (database/migrations/2024_06_25_151627_add_foreign_key_to_contact_list_table.php,
+-- contact_list.cid -> contact.id ON DELETE CASCADE), but `contact_list` uses the MyISAM
+-- storage engine, which does not support foreign keys — MySQL silently accepts the
+-- ADD CONSTRAINT ... FOREIGN KEY syntax on MyISAM tables without actually enforcing it.
+-- See migration-spec/known-legacy-issues.md for the full analysis.
+--
+-- Intentionally NOT adding a real foreign key here: doing so would make cascade-delete
+-- behavior in the Node/local-test database DIFFERENT from production (production currently
+-- allows orphaned contact_list rows after a contact is deleted). "與現有資料庫結構完全相容"
+-- means matching production's ACTUAL behavior, not the migration author's original intent.
+--
+-- If the business ever decides real referential integrity is wanted, that requires first
+-- converting `contact_list` (and `contact`) from MyISAM to InnoDB in production — an explicit,
+-- separate, and risky decision that is out of scope for this migration spec and must not be
+-- done silently as part of a "compatible" rebuild.
+--
+-- No statements to run.

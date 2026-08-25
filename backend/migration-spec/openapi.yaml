@@ -1,0 +1,840 @@
+openapi: 3.1.0
+info:
+  title: JINFENG API — Node.js Rebuild Specification
+  version: "1.0.0"
+  description: >
+    Target API contract for a brand-new Node.js 22 + TypeScript + Express + Zod backend that
+    replaces the legacy Laravel 5.6 application while connecting to the SAME existing Zeabur
+    MySQL database (no schema changes). Every operation preserves the original `/api` path,
+    HTTP method, request/response field names and types, and business logic, and carries
+    `x-source-file` / `x-source-controller` / `x-source-method` extensions pointing at the
+    legacy code for verification purposes only — the new project does not need to understand
+    Laravel to implement against this spec. `x-confirmation-status` on each operation/schema is
+    one of: `CONFIRMED`, `UNCONFIRMED`, `AUTH_REIMPLEMENTATION_REQUIRED`, `KNOWN_LEGACY_ISSUE`.
+    See `api-specification.md` for prose detail, `api-business-logic.md` for framework-agnostic
+    pseudocode, and `known-legacy-issues.md` for known inconsistencies in the legacy behavior.
+
+    Authentication is being FULLY REDESIGNED for the new project (see `bearerAuth` below) —
+    Laravel Passport token generation/validation/storage is explicitly OUT OF SCOPE and is not
+    described anywhere in this document.
+servers:
+  - url: https://jinfengv2back.zeabur.app
+    description: Production (Zeabur)
+  - url: http://localhost:8080
+    description: Local Node.js dev server
+
+security: []
+
+tags:
+  - name: Public
+  - name: Auth
+  - name: Admin
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        The new Node.js project will issue and validate its own bearer tokens (JWT or an
+        equivalent Node-native auth library/session strategy — implementation detail of the new
+        project, not specified here). This does NOT represent, and is not required to be
+        compatible with, the legacy Laravel Passport tokens. See `known-legacy-issues.md` /
+        `AUTH_REIMPLEMENTATION_REQUIRED`.
+
+  schemas:
+    ErrorMessage:
+      type: object
+      description: Generic error shape used by most controllers (not FormRequest validation errors).
+      properties:
+        message:
+          type: string
+      required: [message]
+      x-confirmation-status: CONFIRMED
+
+    ValidationError:
+      type: object
+      description: >
+        Shape returned by App\Http\Requests\APIRequest::failedValidation() for every
+        FormRequest-based endpoint (register, contact store, contact-class store/update).
+        HTTP status is always 400 (not Laravel's default 422).
+      properties:
+        status:
+          type: string
+          enum: [error]
+        message:
+          type: string
+          description: The FIRST validation error message only (Laravel $validator->errors()->first()), in Traditional Chinese.
+      required: [status, message]
+      x-source-file: app/Http/Requests/APIRequest.php
+      x-confirmation-status: CONFIRMED
+
+    LegacyValidationError:
+      type: object
+      description: >
+        Documentation supplement (not a change to the original spec — see 統一錯誤格式 in
+        api-specification.md and known-legacy-issues.md #4): Laravel's default inline-validator
+        format used specifically by POST /api/v2/auth/login's request validation. The Node.js
+        project's 001-auth-login feature (spec.md OD-1, Option B) deliberately reproduces this
+        legacy shape for this one endpoint only, instead of the project's own general unified
+        error envelope, to preserve existing frontend compatibility.
+      properties:
+        message:
+          type: string
+          enum: ["The given data was invalid."]
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+      required: [message, errors]
+      x-confirmation-status: CONFIRMED
+
+    PaginatedResponse:
+      type: object
+      description: Standard Laravel 5.6 paginator (paginate(10)) envelope.
+      properties:
+        current_page: { type: integer }
+        data: { type: array, items: {} }
+        first_page_url: { type: string }
+        from: { type: [integer, "null"] }
+        last_page: { type: integer }
+        last_page_url: { type: string }
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: [string, "null"] }
+              label: { type: string }
+              active: { type: boolean }
+        next_page_url: { type: [string, "null"] }
+        path: { type: string }
+        per_page: { type: integer }
+        prev_page_url: { type: [string, "null"] }
+        to: { type: [integer, "null"] }
+        total: { type: integer }
+      x-confirmation-status: CONFIRMED
+
+    Seo:
+      type: object
+      description: Full `seo` table row (SeoModel only guards a subset via $fillable; reads return all columns).
+      properties:
+        id: { type: integer }
+        class_id: { type: [integer, "null"] }
+        relate_id: { type: integer }
+        tag: { type: string }
+        name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        url: { type: string }
+        type: { type: string }
+        keyword: { type: string }
+        pic: { type: string }
+        pic_alt: { type: string }
+        del: { type: integer, description: "manual soft-delete flag (0/1), not Eloquent SoftDeletes" }
+        created_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+      x-source-file: app/Models/SeoModel.php
+      x-confirmation-status: CONFIRMED
+
+    ContactClass:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        "no": { type: integer }
+        del: { type: integer }
+        created_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+      required: [id, name, "no", del]
+      x-source-file: app/Models/ContactClassModel.php
+      x-confirmation-status: CONFIRMED
+
+    ContactQuest:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        "no": { type: integer }
+        del: { type: integer }
+        created_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+      required: [id, name, "no", del]
+      x-source-file: app/Models/ContactQuestModel.php
+      x-confirmation-status: CONFIRMED
+
+    Faq:
+      type: object
+      description: FAQController@index projects only these 4 columns out of the full `faq` table; del is NOT filtered — see known-legacy-issues.md.
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        info: { type: string }
+        "no": { type: integer }
+      required: [id, name, info, "no"]
+      x-source-file: app/Http/Controllers/Contact/FAQController.php
+      x-confirmation-status: CONFIRMED
+
+    ContactListItemInput:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        job: { type: string, nullable: true }
+        cel: { type: string, maxLength: 10 }
+      required: [name, email, cel]
+      x-source-file: app/Http/Requests/CreateContactRequest.php
+      x-confirmation-status: CONFIRMED
+
+    ContactList:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        cel: { type: [string, "null"] }
+        job: { type: [string, "null"] }
+        email: { type: [string, "null"] }
+        "no": { type: integer }
+        cid: { type: integer, description: "FK to contact.id — NOT enforced at DB level (contact_list is MyISAM)." }
+        created_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+      x-source-file: app/Models/ContactListModel.php
+      x-confirmation-status: CONFIRMED
+
+    ContactCreateRequest:
+      type: object
+      description: FormRequest CreateContactRequest — used for both POST /api/v2/contact (store) and PUT /api/v2/admin/contact/{id} (update, see x-confirmation-status UNCONFIRMED note).
+      properties:
+        class: { type: string }
+        quest: { type: string }
+        company: { type: string }
+        tel: { type: string, maxLength: 10 }
+        num: { type: string }
+        last5: { type: string, maxLength: 5, nullable: true }
+        ticket: { type: string, enum: ["2", "3"], nullable: true }
+        ticket_name: { type: string, nullable: true }
+        ticket_no: { type: string, nullable: true }
+        ticket_address: { type: string, nullable: true }
+        from: { type: string, nullable: true }
+        suggest_name: { type: string, nullable: true }
+        contactList:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContactListItemInput"
+      required: [class, quest, company, tel, num, contactList]
+      x-source-file: app/Http/Requests/CreateContactRequest.php
+      x-confirmation-status: CONFIRMED
+
+    Contact:
+      type: object
+      properties:
+        id: { type: integer }
+        class: { type: string }
+        quest: { type: string }
+        company: { type: string }
+        tel: { type: string }
+        num: { type: string }
+        last5: { type: [string, "null"] }
+        ticket: { type: [string, "null"] }
+        ticket_name: { type: [string, "null"] }
+        ticket_no: { type: [string, "null"] }
+        ticket_address: { type: [string, "null"] }
+        from: { type: [string, "null"] }
+        suggest_name: { type: [string, "null"] }
+        del: { type: integer }
+        "no": { type: integer }
+        created_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+        contactList:
+          type: array
+          items: { $ref: "#/components/schemas/ContactList" }
+          description: "Only present when loaded via GET /api/v2/admin/contact/{id} (with('contactList'))."
+      x-source-file: app/Models/ContactModel.php
+      x-confirmation-status: CONFIRMED
+
+    ContactClassCreateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        "no": { type: integer }
+      required: [name, "no"]
+      x-source-file: app/Http/Requests/CreateContactClassRequest.php
+      x-confirmation-status: CONFIRMED
+
+    RegisterRequest:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 6 }
+        password_confirmation: { type: string, description: "required by Laravel 'confirmed' rule; not persisted" }
+        is_admin: { type: boolean }
+      required: [name, email, password, password_confirmation]
+      x-source-file: app/Http/Requests/CreateUser.php
+      x-confirmation-status: CONFIRMED
+
+    LoginRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+      required: [email, password]
+      x-source-file: app/Http/Controllers/Auth/AuthController.php
+      x-confirmation-status: CONFIRMED
+
+    LoginResponse:
+      type: object
+      description: >
+        Field name `token` is preserved because the existing frontend depends on it.
+        Token implementation must be replaced by the new Node.js authentication system —
+        do not attempt to produce or validate a Laravel Passport token here.
+      properties:
+        token:
+          type: string
+          description: >
+            Opaque bearer token string. In the legacy system this was a Laravel Passport
+            token; in the new system it is whatever the new Node.js auth implementation issues
+            (e.g. a JWT). The new project only needs to preserve the field NAME and its use as
+            a Bearer token — not the legacy token format or validation logic.
+      required: [token]
+      x-confirmation-status: AUTH_REIMPLEMENTATION_REQUIRED
+
+    DeleteByIdsRequest:
+      type: object
+      description: >
+        Accepts either a single integer or an array of integers under `ids` — the controller
+        branches on is_array(). Modeled here as the array form; a bare integer is also accepted
+        by the live API (x-confirmation-status: UNCONFIRMED shape — no strict validation in Laravel).
+      properties:
+        ids:
+          oneOf:
+            - type: integer
+            - type: array
+              items: { type: integer }
+      required: [ids]
+      x-confirmation-status: UNCONFIRMED
+
+paths:
+  /api/v2/seo:
+    get:
+      operationId: getSeoList
+      summary: 取得所有 SEO 資料
+      tags: [Public]
+      x-source-file: app/Http/Controllers/SeoController.php
+      x-source-controller: SeoController
+      x-source-method: index
+      x-confirmation-status: CONFIRMED
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Seo" }
+              example:
+                - id: 1
+                  relate_id: 0
+                  tag: "home"
+                  name: "首頁"
+                  title: "晉峰"
+                  description: "晉峰法律事務所"
+                  url: "/"
+                  type: "website"
+                  keyword: "法律,晉峰"
+                  pic: "seo.jpg"
+                  pic_alt: "晉峰"
+                  del: 0
+                  created_at: "2024-06-25T00:00:00Z"
+                  updated_at: "2024-06-25T00:00:00Z"
+
+  /api/v2/contact-class:
+    get:
+      operationId: getContactClassList
+      summary: 取得所有課程分類（未刪除）
+      tags: [Public]
+      x-source-file: app/Http/Controllers/Contact/ContactClassController.php
+      x-source-controller: Contact\ContactClassController
+      x-source-method: index
+      x-confirmation-status: CONFIRMED
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ContactClass" }
+              example:
+                - { id: 1, name: "勞資爭議", "no": 10, del: 0, created_at: "2024-06-25T00:00:00Z", updated_at: "2024-06-25T00:00:00Z" }
+
+  /api/v2/contact-quest:
+    get:
+      operationId: getContactQuestList
+      summary: 取得所有問題選項（未刪除，分頁）
+      tags: [Public]
+      x-source-file: app/Http/Controllers/Contact/ContactQuestController.php
+      x-source-controller: Contact\ContactQuestController
+      x-source-method: index
+      x-confirmation-status: CONFIRMED
+      responses:
+        "200":
+          description: OK (Laravel paginator envelope)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaginatedResponse" }
+
+  /api/v2/contact:
+    post:
+      operationId: createContact
+      summary: 送出報名表單
+      tags: [Public]
+      x-source-file: app/Http/Controllers/Contact/ContactController.php
+      x-source-controller: Contact\ContactController
+      x-source-method: store
+      x-confirmation-status: CONFIRMED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContactCreateRequest" }
+            example:
+              class: "勞資爭議講座"
+              quest: "想了解資遣費計算"
+              company: "測試股份有限公司"
+              tel: "0212345678"
+              num: "2"
+              contactList:
+                - { name: "王小明", email: "test@example.com", job: "經理", cel: "0912345678" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "新增成功" }
+                  data: { $ref: "#/components/schemas/Contact" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+
+  /api/v2/faq:
+    get:
+      operationId: getFaqList
+      summary: 取得所有 FAQ（24 小時快取，投影 4 欄位，未過濾 del）
+      tags: [Public]
+      x-source-file: app/Http/Controllers/Contact/FAQController.php
+      x-source-controller: Contact\FAQController
+      x-source-method: index
+      x-confirmation-status: UNCONFIRMED
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Faq" }
+
+  /api/v2/auth/login:
+    post:
+      operationId: authLogin
+      summary: 登入並取得 Bearer token（AUTH_REIMPLEMENTATION_REQUIRED — token 產生方式由新專案重新設計）
+      tags: [Auth]
+      x-source-file: app/Http/Controllers/Auth/AuthController.php
+      x-source-controller: Auth\AuthController
+      x-source-method: login
+      x-confirmation-status: AUTH_REIMPLEMENTATION_REQUIRED
+      description: >
+        Path, request fields, response field name (`token`), and the credential-check business
+        logic (look up user by email, verify password against the existing bcrypt hash in
+        `users.password`, 401 on mismatch) are CONFIRMED and must be preserved. How the token
+        itself is generated, validated, stored, and expired is being fully redesigned by the new
+        Node.js project (AUTH_REIMPLEMENTATION_REQUIRED) — do not implement Laravel Passport's
+        token mechanics.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResponse" }
+        "401":
+          description: 帳號或密碼錯誤
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "422":
+          description: >
+            Request validation failure (missing/invalid email or password, or an unrecognized
+            field). Documentation supplement added for the Node.js 001-auth-login feature
+            (spec.md OD-1, Option B) — see LegacyValidationError.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyValidationError" }
+
+  /api/v2/auth/register:
+    post:
+      operationId: authRegister
+      summary: 註冊新使用者
+      tags: [Auth]
+      x-source-file: app/Http/Controllers/Auth/AuthController.php
+      x-source-controller: Auth\AuthController
+      x-source-method: register
+      x-confirmation-status: CONFIRMED
+      description: >
+        Pure data-creation endpoint (bcrypt-hash the password, insert into `users`), no token
+        involved — fully CONFIRMED and framework-agnostic, nothing here needs auth reimplementation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "註冊成功" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+
+  /api/v2/auth/logout:
+    post:
+      operationId: authLogout
+      summary: 登出（AUTH_REIMPLEMENTATION_REQUIRED — 撤銷/失效機制由新專案重新設計）
+      tags: [Auth]
+      x-source-file: app/Http/Controllers/Auth/AuthController.php
+      x-source-controller: Auth\AuthController
+      x-source-method: logout
+      x-confirmation-status: AUTH_REIMPLEMENTATION_REQUIRED
+      description: >
+        Path and response shape are preserved. How the new Node.js project invalidates a
+        token/session on logout (e.g. a JWT deny-list, short-lived tokens with no server-side
+        revocation, or a session store) is entirely up to the new auth implementation — the
+        legacy Passport token-revocation mechanism is out of scope. KNOWN_LEGACY_ISSUE for
+        reference only: in the legacy app this route was not actually protected by auth
+        middleware, so calling it without credentials caused a 500 instead of a 401 — the new
+        implementation should simply require authentication and return 401 when absent.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "登出成功" }
+        "401":
+          description: "Recommended for Node version; Laravel currently returns 500 instead (see x-confirmation-status)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/contact:
+    get:
+      operationId: adminListContact
+      summary: 管理端：取得所有報名資料（分頁）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactController.php
+      x-source-controller: Contact\ContactController
+      x-source-method: index
+      x-confirmation-status: CONFIRMED
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaginatedResponse" }
+    delete:
+      operationId: adminDeleteContact
+      summary: 管理端：刪除報名資料（單筆或批次，硬刪除）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactController.php
+      x-source-controller: Contact\ContactController
+      x-source-method: destroy
+      x-confirmation-status: CONFIRMED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteByIdsRequest" }
+      responses:
+        "200":
+          description: 刪除成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 部分或全部 id 不存在
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/contact/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      operationId: adminGetContact
+      summary: 管理端：取得單筆報名資料（含 contactList 關聯）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactController.php
+      x-source-controller: Contact\ContactController
+      x-source-method: show
+      x-confirmation-status: CONFIRMED
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Contact" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+    put:
+      operationId: adminUpdateContact
+      summary: "管理端：更新報名資料（KNOWN_LEGACY_ISSUE — 見 known-legacy-issues.md）"
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactController.php
+      x-source-controller: Contact\ContactController
+      x-source-method: update
+      x-confirmation-status: KNOWN_LEGACY_ISSUE
+      description: >
+        KNOWN_LEGACY_ISSUE: validated against CreateContactRequest (requires class/quest/company/
+        tel/num/contactList) but the handler only reads $data['name'] and $data['no'], neither
+        of which exist in the validation rules or in ContactModel::$fillable, nor does `contact`
+        have a `name` column. In the legacy app this is effectively a no-op update (only
+        `updated_at` changes). Do not implement this literally — see known-legacy-issues.md.
+        The project owner must decide what this endpoint should actually update before it is
+        implemented in the new project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContactCreateRequest" }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: "#/components/schemas/Contact" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/contact-list:
+    get:
+      operationId: adminListContactList
+      summary: 管理端：取得所有聯絡人資料（無分頁）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactListController.php
+      x-source-controller: Contact\ContactListController
+      x-source-method: index
+      x-confirmation-status: CONFIRMED
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ContactList" }
+
+  /api/v2/admin/contact-list/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      operationId: adminGetContactList
+      summary: 管理端：取得單筆聯絡人資料
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactListController.php
+      x-source-controller: Contact\ContactListController
+      x-source-method: show
+      x-confirmation-status: CONFIRMED
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactList" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/contact-class/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      operationId: adminGetContactClass
+      summary: 管理端：取得單筆課程分類（未刪除）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactClassController.php
+      x-source-controller: Contact\ContactClassController
+      x-source-method: show
+      x-confirmation-status: CONFIRMED
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContactClass" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+    put:
+      operationId: adminUpdateContactClass
+      summary: 管理端：更新課程分類
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactClassController.php
+      x-source-controller: Contact\ContactClassController
+      x-source-method: update
+      x-confirmation-status: CONFIRMED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContactClassCreateRequest" }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: "#/components/schemas/ContactClass" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/contact-class:
+    post:
+      operationId: adminCreateContactClass
+      summary: 管理端：新增課程分類
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactClassController.php
+      x-source-controller: Contact\ContactClassController
+      x-source-method: store
+      x-confirmation-status: CONFIRMED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContactClassCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "新增成功" }
+                  data: { $ref: "#/components/schemas/ContactClass" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+    delete:
+      operationId: adminDeleteContactClass
+      summary: 管理端：刪除課程分類（單筆或批次，Eloquent 硬刪除）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactClassController.php
+      x-source-controller: Contact\ContactClassController
+      x-source-method: destroy
+      x-confirmation-status: CONFIRMED
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteByIdsRequest" }
+      responses:
+        "200":
+          description: 刪除成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 部分或全部 id 不存在
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/contact/search/search-company:
+    get:
+      operationId: adminSearchContactByCompany
+      summary: 管理端：依公司名稱模糊搜尋報名資料（分頁）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-source-file: app/Http/Controllers/Contact/ContactController.php
+      x-source-controller: Contact\ContactController
+      x-source-method: searchCompany
+      x-confirmation-status: CONFIRMED
+      parameters:
+        - name: company
+          in: query
+          required: false
+          schema: { type: string }
+          description: "LIKE '%company%' — user-supplied % / _ wildcards are not escaped (low-risk, no SQLi due to parameter binding)."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaginatedResponse" }
