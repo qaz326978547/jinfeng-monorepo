@@ -1,3 +1,9 @@
+> **Historical migration reference**
+> **Do not use as current runtime implementation.**
+> Current runtime migration code lives in:
+> `backend/migrations/`
+> `backend/scripts/`
+
 # Node Migration Runner — 設計與選型理由
 
 ## 選型：純 SQL + 自製最小 migration runner（不使用 ORM migration DSL）

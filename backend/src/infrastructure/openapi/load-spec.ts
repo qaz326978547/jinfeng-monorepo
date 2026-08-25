@@ -4,13 +4,13 @@ import type { OpenAPIV3_1 } from 'openapi-types';
 
 export const DEFAULT_OPENAPI_SPEC_PATH = path.resolve(
   __dirname,
-  '../../../migration-spec/openapi.yaml',
+  '../../../../specs/shared/api-contracts/openapi.yaml',
 );
 
 /**
- * Validates and dereferences the migration spec's openapi.yaml. Used by
+ * Validates and dereferences the shared API contract's openapi.yaml. Used by
  * scripts/validate-openapi.ts; kept read-only, never writes back to
- * migration-spec/.
+ * specs/shared/.
  */
 export async function loadOpenApiSpec(
   specPath: string = DEFAULT_OPENAPI_SPEC_PATH,

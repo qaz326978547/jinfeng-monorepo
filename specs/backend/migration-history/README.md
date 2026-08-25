@@ -1,3 +1,9 @@
+> **Historical migration reference**
+> **Do not use as current runtime implementation.**
+> Current runtime migration code lives in:
+> `backend/migrations/`
+> `backend/scripts/`
+
 # Migration Spec — Node.js 重建規格文件
 
 ## 1. 文件目的

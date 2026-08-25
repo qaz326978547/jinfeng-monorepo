@@ -1,3 +1,9 @@
+> **Historical migration reference**
+> **Do not use as current runtime implementation.**
+> Current runtime Docker config lives in:
+> `backend/Dockerfile`
+> `backend/docker-compose.yml`
+
 # Docker 規格說明
 
 這個資料夾是**未來 Node.js 專案**的 Docker 參考範本，不是可以在目前 `src/`（Laravel 專案）直接
