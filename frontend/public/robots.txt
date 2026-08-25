@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /thanks
+
+Sitemap: https://laborservice5690.com/sitemap.xml
