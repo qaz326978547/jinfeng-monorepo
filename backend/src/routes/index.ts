@@ -1,11 +1,14 @@
 import { Router } from 'express';
 import type { Pool } from 'mysql2/promise';
+import type { Transporter } from 'nodemailer';
 import type { Logger } from 'pino';
 import { createAuthRouter } from '../modules/auth/auth.routes';
+import { createContactRouter } from '../modules/contact/contact.routes';
 import { createContactClassRouter } from '../modules/contact-class/contact-class.routes';
 import { createContactQuestRouter } from '../modules/contact-quest/contact-quest.routes';
 import { createFaqRouter } from '../modules/faq/faq.routes';
 import { createSeoRouter } from '../modules/seo/seo.routes';
+import type { MailConfig } from '../infrastructure/mail/mail.config';
 import { createHealthRouter } from './health/health.route';
 
 export const API_V2_BASE_PATH = '/api/v2';
@@ -14,6 +17,9 @@ export interface RouterDeps {
   pool: Pool;
   jwtSecret: string;
   jwtExpiresIn: string;
+  mailConfig: MailConfig;
+  /** Test-only mail transport override — see modules/contact/contact.routes.ts. */
+  mailTransport?: Transporter | null | undefined;
   logger: Logger;
 }
 
@@ -38,7 +44,16 @@ export function createRootRouter(deps: RouterDeps): Router {
   apiV2.use('/faq', createFaqRouter({ pool: deps.pool }));
   apiV2.use('/contact-class', createContactClassRouter({ pool: deps.pool }));
   apiV2.use('/contact-quest', createContactQuestRouter({ pool: deps.pool }));
-  // Future modules (contact, admin/*) mount here.
+  apiV2.use(
+    '/contact',
+    createContactRouter({
+      pool: deps.pool,
+      mailConfig: deps.mailConfig,
+      mailTransport: deps.mailTransport,
+      logger: deps.logger,
+    }),
+  );
+  // Future modules (admin/*) mount here.
   router.use(API_V2_BASE_PATH, apiV2);
 
   return router;

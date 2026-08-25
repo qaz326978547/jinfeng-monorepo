@@ -17,6 +17,20 @@ const envSchema = z.object({
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(20).default(10),
 
   CORS_ALLOWED_ORIGINS: z.string().default(''),
+
+  // Mail is optional at the schema level: an unset MAIL_HOST means "mail not
+  // configured" (see infrastructure/mail/mail-transport.ts), not a startup
+  // failure — this app must keep serving every other endpoint even when
+  // outbound mail isn't set up (e.g. local dev, or before Ops provisions
+  // SMTP credentials).
+  MAIL_HOST: z.string().default(''),
+  MAIL_PORT: z.coerce.number().int().positive().default(587),
+  MAIL_USERNAME: z.string().default(''),
+  MAIL_PASSWORD: z.string().default(''),
+  MAIL_ENCRYPTION: z.enum(['tls', 'ssl', 'none']).default('tls'),
+  MAIL_FROM_ADDRESS: z.string().default('no-reply@example.com'),
+  MAIL_FROM_NAME: z.string().default('Jinfeng'),
+  RECIPIENT_EMAIL: z.string().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError, type ZodType } from 'zod';
 import { LegacyValidationError, toLegacyValidationErrors } from '../shared/errors/legacy-validation-error';
+import { FormRequestValidationError, firstValidationMessage } from '../shared/errors/form-request-validation-error';
 
 export interface ValidationSchemas {
   body?: ZodType;
@@ -14,6 +15,16 @@ export interface ValidationSchemas {
    * every other route — only auth/login sets this (spec.md OD-1 / FR-001).
    */
   legacyErrorFormat?: boolean;
+  /**
+   * When true, a ZodError thrown while parsing `body` is converted into a
+   * FormRequestValidationError (400, `{status:"error", message}` —
+   * Laravel's FormRequest::failedValidation() shape) instead of the
+   * project's general 400 envelope. Used by every FormRequest-equivalent
+   * endpoint (register, contact store, contact-class store/update).
+   * Mutually exclusive with `legacyErrorFormat` in practice — no endpoint
+   * needs both.
+   */
+  formRequestErrorFormat?: boolean;
 }
 
 /**
@@ -48,6 +59,10 @@ export function validateRequest(schemas: ValidationSchemas) {
     } catch (error) {
       if (schemas.legacyErrorFormat && error instanceof ZodError) {
         next(new LegacyValidationError(toLegacyValidationErrors(error)));
+        return;
+      }
+      if (schemas.formRequestErrorFormat && error instanceof ZodError) {
+        next(new FormRequestValidationError(firstValidationMessage(error)));
         return;
       }
       next(error);

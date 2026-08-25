@@ -11,20 +11,21 @@
 
 ## 1. 整體完成百分比
 
-**19 支 Laravel API 中，Node 後端目前 4 支完全 DONE + 1 支 API 行為 DONE（cache 待補）（合計 5/19 ≈ 26%）。**
+**19 支 Laravel API 中，Node 後端目前 5 支完全 DONE + 1 支 API 行為 DONE（cache 待補）+ 1 支 API/DB/Mail DONE（Queue 待補）（合計 7/19 ≈ 37%）。**
 
 | 狀態 | 數量 | 佔比 | 說明 |
 |---|---|---|---|
-| **DONE** | 4 | 21% | `POST /api/v2/auth/login`、`GET /api/v2/seo`、`GET /api/v2/contact-class`、`GET /api/v2/contact-quest` — 完整實作 + integration/unit test 全過 |
+| **DONE** | 5 | 26% | `POST /api/v2/auth/login`、`GET /api/v2/seo`、`GET /api/v2/contact-class`、`GET /api/v2/contact-quest`、`POST /api/v2/contact` — 完整實作 + integration/unit test 全過 |
+| **DONE(API+DB+Mail)/PARTIAL(Queue)** | 1 | 5% | `POST /api/v2/contact` — API 行為、DB atomicity、Mail(同步)皆 DONE；**Queue 未實作**(見 §1.2)，**不算 production parity 完整完成** |
 | **DONE(API)/PARTIAL(cache)** | 1 | 5% | `GET /api/v2/faq` — 查詢/排序/欄位投影與 Laravel 完全一致，**但 24 小時 cache 尚未實作**（見 §1.1），留有明確 TODO，**不算 production parity 完整完成** |
 | **PARTIAL** | 2 | 11% | `POST /api/v2/auth/register`、`POST /api/v2/auth/logout` — 路由已掛載、Zod 驗證已定義,但 controller 直接 `throw NotImplementedError`（HTTP 501），無任何商業邏輯、無測試 |
-| **NOT_IMPLEMENTED** | 12 | 63% | `contact`（POST）、全部 9 支 `admin/*` — **backend/src/routes 完全沒有掛載對應路由**，呼叫會落到 `notFoundHandler`(404) |
-| **BEHAVIOR_MISMATCH** | 0 | — | 已實作的 5 支經 integration test 驗證，與規格一致，無 mismatch |
+| **NOT_IMPLEMENTED** | 11 | 58% | 全部 9 支 `admin/*` — **backend/src/routes 完全沒有掛載對應路由**，呼叫會落到 `notFoundHandler`(404) |
+| **BEHAVIOR_MISMATCH** | 0 | — | 已實作的 6 支經 integration test 驗證，與規格一致，無 mismatch（`POST /contact` 的 DB atomicity 是刻意的行為改善，非 mismatch，見 §1.2） |
 | **UNKNOWN** | 0 | — | 無 |
 
-**結論：`backend/` 現在能正確服務 4 個前端頁面級功能（首頁 SEO meta、FAQ 頁、報名表單的課程分類/問題選項下拉選單），但報名表單「送出」本身（`POST /contact`）與整個後台管理仍未實作，還不能取代 Laravel 後端。**
+**結論：`backend/` 現在能正確服務首頁 SEO meta、FAQ 頁、報名表單的下拉選單，且報名表單本身現在也能真正「送出」（含 DB 寫入 + Email 通知），但整個後台管理（`admin/*`，含檢視/編輯/刪除報名資料）仍未實作，還不能取代 Laravel 後端。**
 
-OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全部 19 個 operation(15 個 path），品質良好、可直接作為實作依據 —— 已實作的 5 支皆通過 `npm run openapi:validate`。
+OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全部 19 個 operation(15 個 path），品質良好、可直接作為實作依據 —— 已實作的 6 支皆通過 `npm run openapi:validate`。
 
 ### 1.1 第三階段更新（2026-08-26）—— 第一批 Public Read API
 
@@ -42,6 +43,41 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 
 **`links` 欄位的簡化說明**：`contact-quest` 分頁 envelope 的 `links` 陣列採用 Laravel 預設分頁器在頁數較少時（<12 頁）的「small slider」演算法（列出全部頁碼，無省略號）—— 這是這個 app 實際資料量（課程分類/問題選項這類人工維護的小清單）永遠會落入的情況。**雙位數頁碼時 Laravel 會切換成帶省略號（`...`）的 windowed 演算法，這個階段沒有重建**，因為 (a) 前端只讀取 `.data`，完全不使用 `links`，(b) 現有規格文件的 `links` 範例本身是截斷的，沒有完整資料可以逐位元核對，重建會變成「猜」而非「依規格實作」。已在 `laravel-pagination.ts` 的註解中明確記錄這個已知限制。
 
+### 1.2 第四階段更新（2026-08-26）—— `POST /api/v2/contact`
+
+**API behavior: DONE / DB atomicity: DONE / Mail: DONE (synchronous) / Queue parity: PARTIAL（deferred）。**
+
+新增/修改檔案：
+
+- `backend/src/modules/contact/`（新增）—— `contact.repository.ts` / `.schemas.ts` / `.service.ts` / `.controller.ts` / `.routes.ts`
+- `backend/src/infrastructure/mail/`（新增）—— `mail.config.ts`、`mail-transport.ts`、`mail.service.ts`、`contact-notification.mail.ts`
+- `backend/src/shared/errors/form-request-validation-error.ts`（新增）—— 第 3 種錯誤格式（見下方）
+- `backend/src/middleware/validate-request.ts`（修改）—— 新增 `formRequestErrorFormat` 選項
+- `backend/src/middleware/error-handler.ts`（修改）—— 新增 `FormRequestValidationError` 分支
+- `backend/src/config/env.ts`（修改）—— 新增 `MAIL_*` + `RECIPIENT_EMAIL`（皆有預設值，未設定時視為「mail 未設定」而非啟動失敗）
+- `backend/.env.example`（修改）—— 同步新增，全部 placeholder
+- `backend/src/app.ts`、`backend/src/routes/index.ts`（修改）—— 組裝 `mailConfig`，並新增測試專用的 `mailTransport` 覆寫參數（見下方 Mail tests 說明）
+- `backend/tests/helpers/build-test-app.ts`（修改）—— 新增 `createMockMailTransport()`，`buildTestApp` 支援注入 mock transport
+- `backend/package.json`（修改）—— 新增 `nodemailer` + `@types/nodemailer`
+
+**Intentional reliability improvement**：
+```
+database writes are atomic in Node implementation.
+```
+Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 的寫入包在同一個 transaction 內（known-legacy-issues.md #8）。Node 實作用既有的 `infrastructure/database/transaction.ts::withTransaction` 把兩者包成一個 transaction：`contact` insert 失敗 → 直接 rollback；`contact_list` 任一筆 insert 失敗 → 連同已成功的 `contact` insert 一起 rollback。這是刻意的行為改善，不是 BEHAVIOR_MISMATCH。
+
+**第 3 種錯誤格式**：`api-specification.md`「統一錯誤格式」文件的 3 種格式中，前兩種（`LegacyValidationError` 422、通用 `{message,code,requestId}` 500/404）已存在，但 `{status:"error", message}` 400（FormRequest 驗證失敗格式，`register`/`contact`/`contact-class` 共用）在此之前從未被實作過（`register` 是 501 stub，從未真正跑到驗證失敗分支）。本階段新增 `FormRequestValidationError` + `validateRequest({formRequestErrorFormat: true})`，只取 Zod 的第一條錯誤訊息，比照 Laravel `$validator->errors()->first()`。
+
+**Validation parity 確認結果**：已重新檢查 `api-specification.md` #4 的「特殊條件」——文件同時記載了兩件事：(a) FormRequest 驗證規則要求 `contactList[].email` 必填；(b) `store()` controller 內另外有 `is_array($item) && array_key_exists('email', $item)` 的執行期防呆，沒有 email 的項目會被略過不寫入。**這兩者並不衝突**——(a) 決定請求能否通過驗證(400 與否)，(b) 是驗證通過後的一層額外防呆，在驗證已強制要求 email 的前提下必然不會被觸發。因此本階段**兩者都實作了**：Zod 要求 `email` 必填(對應 a)，`contact.repository.ts::insertContactList` 也保留 `filter((item) => Boolean(item.email))`(對應 b，目前必然為 true，程式碼註解已註明是防呆而非可觸發邏輯)。沒有發現需要停下來回報的真正衝突。
+
+**`ticket` 空字串的相容性決策**：`api-specification.md` 記載 `ticket` 只允許 `"2"`/`"3"`，但前端(`SignUpClassForm.vue`)在使用者未點選發票單選鈕時，預設值是空字串 `""`（不是 `null`，也沒有 `required` 屬性強制選擇）。若嚴格套用 `enum(["2","3"])`，會讓「使用者不填發票選項」這個真實存在的常見操作直接 400，違反「維持 frontend request/response compatibility」的目標。已將空字串正規化為 `undefined`（等同未提供），再套用 enum 檢查——這是為了相容性做的判斷，已在 `contact.schemas.ts` 註解中說明。
+
+**Mail 已知缺口**：舊 Laravel `SignedUpMail`/Blade template 的確切主旨(subject)與內文排版，在 `specs/backend/migration-history/` 全文搜尋皆找不到記錄——migration-spec 只記錄了「內容包含 company/class/num/tel」與收件人硬編碼，沒有保留原始信件模板本身。`contact-notification.mail.ts` 是依這份文件記載的欄位重建的最小等效版本(純文字信、固定主旨「新報名通知」)，**不是原始模板的逐字重現**。已在程式碼註解與此處明確標示為缺口，未自行杜撰更多內容或版面。
+
+**Mail failure policy（intentional behaviour decision）**：`ContactMailService.sendContactNotification()` 永遠不會 throw——DB transaction 成功後才嘗試寄信；寄信失敗（或 mail 根本未設定）只記錄一行 log（僅 `contactId` + `error.name`，**不含** SMTP 密碼或原始 error 物件），API 仍回 201。原因：報名資料已經確實寫入資料庫，通知信只是附加動作，遺失通知信遠比讓使用者誤以為報名失敗、可能重複送出來得可接受。
+
+**Mail tests 如何 mock**：`ContactRouterDeps`/`RouterDeps`/`CreateAppOptions` 新增了測試專用的 `mailTransport` 覆寫欄位（production 從不設定，只有 `buildTestApp({mailTransport})` 會用到），讓 integration test 能注入 `createMockMailTransport()` 直接斷言 `sendMail` 呼叫內容與失敗行為，全程不建立任何真實 SMTP 連線、不連正式環境。
+
 ---
 
 ## 2. API Parity Matrix
@@ -53,7 +89,7 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 | 1 | GET | `/api/v2/seo` | **DONE** | ✅ | ✅ 是(每頁載入都呼叫) | ✅ 5 tests | ✅ |
 | 2 | GET | `/api/v2/contact-class` | **DONE** | ✅ | ✅ 是 | ✅ 5 tests | ✅ |
 | 3 | GET | `/api/v2/contact-quest` | **DONE** | ✅ | ✅ 是 | ✅ 9 tests | ✅ |
-| 4 | POST | `/api/v2/contact` | NOT_IMPLEMENTED | ❌ | ✅ 是(核心轉換流程) | ❌ | ✅ |
+| 4 | POST | `/api/v2/contact` | **DONE(API+DB+Mail)/PARTIAL(Queue)** | ✅ | ✅ 是(核心轉換流程) | ✅ 14 tests | ✅ |
 | 5 | GET | `/api/v2/faq` | **DONE(API)/PARTIAL(cache)** | ✅ | ✅ 是 | ✅ 4 tests | ✅ |
 | 6 | POST | `/api/v2/auth/login` | **DONE** | ✅ | ✅ 是 | ✅ 18 tests | ✅ |
 | 7 | POST | `/api/v2/auth/register` | PARTIAL(501 stub) | ✅(stub) | ⚠️ 前端有呼叫但**未接 UI**(見 4.2) | ❌ | ✅ |
@@ -103,17 +139,18 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 - Cache/Mail/Queue：無
 - **Test**：`tests/integration/contact-quest.test.ts`(9) + `tests/unit/laravel-pagination.test.ts`(5)
 
-#### #4 `POST /api/v2/contact`
+#### #4 `POST /api/v2/contact` — **DONE(API+DB+Mail)/PARTIAL(Queue)**
 - Laravel：`ContactController.php` (`store`) + `CreateContactRequest.php`
-- Node：**無**
-- Request validation（需重建）：`class`/`quest`/`company`/`tel`(≤10)/`num` 必填；`contactList[]` 陣列，每項需 `name`/`email`(格式)/`cel`(≤10) 必填、`job` 選填
+- Node：`src/modules/contact/`(4 層結構) + `src/infrastructure/mail/`(獨立 mail infrastructure)
+- Request validation：`contact.schemas.ts`——`class`/`quest`/`company`/`tel`(≤10)/`num` 必填；`contactList[]` 陣列，每項需 `name`/`email`(格式)/`cel`(≤10) 必填、`job` 選填；`ticket` 選填且僅允許 `"2"`/`"3"`（空字串正規化為未提供，見 §1.2 相容性決策）
 - Auth：不需要
-- DB query：insert `contact` 1 筆 + insert `contact_list` N 筆（**目前沒有 transaction**，見 5.2）
-- Response：成功 `201` `{message, data}`；驗證失敗 `400` `{status:"error", message}`
+- DB query：insert `contact` 1 筆 + insert `contact_list` N 筆，**包在同一個 transaction 內**(intentional reliability improvement，見 §1.2，修正 known-legacy-issues.md #8)；任一 insert 失敗即整體 rollback
+- Response：成功 `201` `{message, data}`(`data` 只有 `contact` 主表欄位，不含 `contactList`，與規格一致)；驗證失敗 `400` `{status:"error", message}`(新增 `FormRequestValidationError`，只取第一條錯誤訊息)
 - Cache：無
-- **Mail：需要**——寄送通知信到硬編碼 `a0930532215@gmail.com`（見 §6 Mail 段落）
-- **Queue：需要**——舊系統用非同步 queue 寄信（見 §6 Queue 段落）
-- Side effects：寄信
+- **Mail：已實作(同步 Nodemailer)**——DB transaction 成功後才寄信，收件人由 `RECIPIENT_EMAIL` 環境變數設定(不再硬編碼)，內容含 company/class/num/tel(見 §1.2 mail 已知缺口說明：原始 Blade 模板內容未保留，本次是依文件記載欄位重建的最小等效版本)
+- **Queue：未實作**——本階段刻意不引入 BullMQ/Redis/worker，寄信是同步呼叫；若未來需要非同步化，需另開任務
+- Side effects：寄信(失敗不影響 API 回應，見 §1.2 mail failure policy)
+- **Test**：`tests/integration/contact.test.ts`(14)
 
 #### #5 `GET /api/v2/faq` — **DONE(API)/PARTIAL(cache)**
 - Laravel：`FAQController.php`
@@ -226,12 +263,12 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 | | token invalidation | 無(Passport revoke 未使用) | 未實作(logout 是 stub) | NOT_IMPLEMENTED |
 | | auth middleware | 無 route 保護(part of legacy issue) | ✅ `authenticate.ts` 已實作,JWT 驗證完整 | DONE(元件本身),但只掛在 logout |
 | | admin authorization | **完全沒有 is_admin 檢查** | `requireAdmin` middleware 已寫好但**未掛在任何路由**(因為 admin/* 都還沒實作) | 待決策(見 known-legacy-issues #2)+待實作 |
-| **Contact** | create | insert + 無 transaction | 未實作 | NOT_IMPLEMENTED |
-| | ContactList nested create | 逐筆 insert,略過無 email 項目 | 未實作 | NOT_IMPLEMENTED |
-| | company search | LIKE 模糊搜尋 | 未實作 | NOT_IMPLEMENTED |
+| **Contact** | create | insert + 無 transaction | ✅ 已實作,且改用 transaction(見 §1.2) | **DONE** |
+| | ContactList nested create | 逐筆 insert,略過無 email 項目 | ✅ 已實作;略過邏輯保留但因 Zod 已要求 email,目前不可觸發(見 §1.2 validation parity 確認結果) | **DONE** |
+| | company search | LIKE 模糊搜尋 | 未實作(`admin/contact/search/search-company`) | NOT_IMPLEMENTED |
 | | admin Contact endpoints | 5 支(index/show/update/delete/search) | 全部未實作 | NOT_IMPLEMENTED |
-| | mail notification | 硬編碼收件人,非同步 queue | 未實作,**Node 無任何 mail 套件** | NOT_IMPLEMENTED |
-| | transaction behavior | **無 transaction**(已知問題) | 未實作;`backend/src/infrastructure/database/transaction.ts` 已存在通用 transaction 工具,可直接用於新實作 | 基礎設施已就緒,業務邏輯未寫 |
+| | mail notification | 硬編碼收件人,非同步 queue | ✅ 已實作(同步 Nodemailer);收件人改為 `RECIPIENT_EMAIL` 環境變數(修正已知問題 #11);**非同步 queue 未實作** | **DONE(同步)/PARTIAL(queue)** |
+| | transaction behavior | **無 transaction**(已知問題) | ✅ 已實作,`contact`+`contact_list` 包在同一 transaction,任一失敗即 rollback(intentional reliability improvement) | **DONE** |
 | **ContactClass** | CRUD | 5 支 | 僅 `index`(公開讀取)已實作,其餘 4 支(admin CRUD)未實作 | index: **DONE**;其餘 NOT_IMPLEMENTED |
 | | soft delete / del flag | 讀取端點過濾 `del=0` | ✅ `index` 已過濾 `del=0`,與規格一致 | DONE(僅 index) |
 | | bulk delete | 硬刪除,批次模式 | 未實作 | NOT_IMPLEMENTED |
@@ -240,10 +277,10 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 | **FAQ** | index | 4 欄位投影,24hr cache | ✅ 查詢/投影/排序已實作;❌ cache 未實作 | **DONE(API)/PARTIAL(cache)** |
 | | 24hr cache | file/array cache,無失效機制 | **Node 無任何 cache 套件依賴**,`faq.service.ts` 留有 TODO | NOT_IMPLEMENTED(基礎設施都沒有) |
 | **SEO** | GET data | 無過濾,無分頁 | ✅ 已實作,`SELECT * FROM seo`,`del` 未過濾維持原樣 | **DONE** |
-| **Mail** | SignedUpMail 等效物 | Laravel Mail + queue | **`backend/package.json` 沒有任何 mail 套件**(無 nodemailer 等) | NOT_IMPLEMENTED(連依賴都沒裝) |
-| | template parity | Laravel Blade mail template | 不存在 | NOT_IMPLEMENTED |
-| | recipient behavior | 硬編碼 email | 不適用(尚未實作) | NOT_IMPLEMENTED |
-| **Queue** | 舊 Laravel queue | database driver,`jobs` 表 | Node 未實作任何 queue 機制,**無 BullMQ/Redis 等套件依賴** | **明確標示：完全未實作** |
+| **Mail** | SignedUpMail 等效物 | Laravel Mail + queue | ✅ `nodemailer` 已裝,`src/infrastructure/mail/` 獨立模組,同步寄送(非 queue) | **DONE(同步)** |
+| | template parity | Laravel Blade mail template | ⚠️ 原始 subject/內文排版未保留於 migration-history,只重建了文件記載的 4 個欄位(company/class/num/tel);**已知缺口,見 §1.2** | PARTIAL(內容欄位 DONE,原始排版 UNCONFIRMED) |
+| | recipient behavior | 硬編碼 email | ✅ 改為 `RECIPIENT_EMAIL` 環境變數(修正已知問題 #11),不再硬編碼 | **DONE(且已改善)** |
+| **Queue** | 舊 Laravel queue | database driver,`jobs` 表 | Node 未實作任何 queue 機制,**無 BullMQ/Redis 等套件依賴**——本階段刻意排除(任務範圍明確排除),`POST /contact` 改為同步寄信 | **明確標示：仍未實作,PARTIAL/deferred** |
 | **Cache** | FAQ cache | Laravel cache facade(driver 未知,見 known-legacy-issues #12 提及 Redis/file 皆有可能) | **Node 無任何 cache 套件依賴**(無 ioredis/node-cache) | **明確標示：完全未實作** |
 | | Redis/file cache 差異 | 未確認(`.env` 實際值未知) | 不適用 | UNCONFIRMED(舊系統本身) |
 | **CORS** | 舊 production origins | 未在規格文件中記錄(Laravel CORS 設定未擷取) | `backend/.env.example` 的 `CORS_ALLOWED_ORIGINS` **預設為空字串**（`env.ts` default `''`）——目前若不設定,**沒有任何跨來源瀏覽器請求會被允許** | 待設定，非程式碼問題 |
@@ -268,7 +305,7 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 | `components/FaqComponent.vue`(`useFetch`) | `GET /faq` | ✅ 已實作(cache 待補) | ✅ 可用 |
 | `SignUpClassForm.vue` → `getContactClass` | `GET /contact-class` | ✅ 已實作 | ✅ 可用 |
 | `SignUpClassForm.vue` | `GET /contact-quest` | ✅ 已實作(含完整分頁 envelope) | ✅ 可用 |
-| `SignUpClassForm.vue` → `addContactInfo` | `POST /contact` | 無 | ❌ 阻斷(核心報名轉換流程) |
+| `SignUpClassForm.vue` → `addContactInfo` | `POST /contact` | ✅ 已實作(含 transaction + mail) | ✅ 可用 |
 | `pages/auth.vue` → `AuthApi.login` | `POST /auth/login` | ✅ 已實作 | ✅ 可用 |
 | `api/auth.ts` → `AuthApi.register`(**未被任何頁面呼叫**) | `POST /auth/register` | 501 stub | 目前無影響(UI 沒有註冊頁面/表單) |
 | (無呼叫) | `POST /auth/logout` | 501 stub(但已受保護) | 目前無影響(前端完全沒有登出功能) |
@@ -287,7 +324,7 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 
 ### 4.2 Frontend 使用中但 Backend 尚未實作的 endpoint
 
-第三階段實作後，**11 / 19 支**前端有實際呼叫的端點仍缺 backend 實作(原本 15 支，`seo`/`faq`/`contact-class`/`contact-quest` 這 4 支已於本階段補上)。剩餘缺口全部集中在：**報名表單「送出」本身(`POST /contact`)**與**整個後台管理(`admin/*`)**——首頁 SEO meta、FAQ 頁、報名表單的下拉選單資料現在都能正確載入，但使用者還無法真正送出報名表單，後台也完全無法使用。
+第四階段實作後，**10 / 19 支**前端有實際呼叫的端點仍缺 backend 實作(第三階段後剩 11 支，本階段補上 `POST /contact`)。剩餘缺口全部集中在**整個後台管理(`admin/*`)**——首頁 SEO meta、FAQ 頁、報名表單的下拉選單資料與「送出」流程現在都能正確運作，使用者可以完整走完報名流程，但後台管理仍完全無法使用。
 
 ### 4.3 Request/Response 格式不一致
 
@@ -314,19 +351,32 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 - **pagination shape**：`contact-quest` 前端型別 `ContactClassData` 期待 `current_page`/`data`/`first_page_url`/`from`/`last_page`/`last_page_url`/`next_page_url`/`path`/`per_page`/`prev_page_url`/`to`/`total`，Node 回傳的 envelope 全部欄位都有(額外多出前端型別沒宣告的 `links`，但前端只讀取 `.data`，多出的欄位不影響執行)
 - **frontend 不需要同步修改**：確認無誤，**未發現任何 mismatch**，這 4 支的前端呼叫可以直接對接本階段實作，不需修改 `frontend/`
 
+### 4.7 第四階段 `POST /api/v2/contact` frontend 相容性檢查結果
+
+靜態比對 `frontend/api/signedUpClass.ts::SignedUpClassInfoApi.addContactInfo`、
+`frontend/api/interface/signedUpClass.ts::AddContactInfo`/`ContactListInfo`、
+`frontend/components/SignUpClassForm.vue` 的呼叫方式與型別定義：
+
+- **endpoint path**：前端呼叫 `$http('post', 'contact', data)`(無前導斜線)，經 axios 的 `combineURLs` 正規化後與其他呼叫(如 `/contact-class`)等價解析為 `.../api/v2/contact`，**與 Node 掛載路徑一致，非 bug**
+- **request shape**：`AddContactInfo` 型別的 12 個欄位(`class`/`quest`/`company`/`tel`/`num`/`last5`/`ticket`/`ticket_name`/`ticket_no`/`ticket_address`/`from`/`suggest_name`/`contactList`)與 `contactListItemSchema` 的 4 個欄位(`name`/`cel`/`job`/`email`)，與 Node 的 Zod schema 欄位名稱**逐一比對完全一致**
+- **response shape**：`addContactInfo` 與呼叫端(`SignUpClassForm.vue::addSignedUpClass`)只檢查回傳值是否 truthy，不讀取 `data` 內任何具體欄位，Node 回傳的 `{message, data}` 形狀完全相容
+- **錯誤處理**：前端失敗分支 `alert(err.data.message)` 只讀取 `message` 字串顯示，不比對確切文字內容，因此 §1.2 提到的「驗證錯誤訊息非逐字重現 Laravel 原文」不影響前端功能
+- **frontend 不需要同步修改**：確認無誤，**未發現任何 mismatch**
+
 ---
 
 ## 5. Behavior Mismatch
 
-目前已實作的 5 支端點,行為與規格比對結果：**無 mismatch**。
+目前已實作的 6 支端點,行為與規格比對結果：**無 mismatch**。
 
 - `login`：bcrypt 比對邏輯、錯誤訊息、狀態碼皆與 `api-specification.md` #6 一致，且额外加了 hash 格式完整性檢查,屬於安全性強化而非行為偏離
 - `seo`：`SELECT * FROM seo` 無過濾無排序，`del` 未過濾維持原樣，與規格一致
 - `contact-class`：`del=0` 過濾 + `no DESC` 排序，與規格一致
 - `contact-quest`：`del=0` 過濾 + `no DESC` 排序 + `paginate(10)` envelope，與規格一致；`links` 的省略號演算法未重建(見 §1.1)，屬於已揭露的簡化，不是未揭露的 mismatch
 - `faq`：4 欄位投影 + `no DESC` 排序，`del` 未過濾維持原樣，與規格一致；**24 小時 cache 未實作是已知、已標示的差距，不是行為 mismatch**(功能輸出正確，只是每次都重新查詢)
+- `contact`(POST)：驗證欄位、寫入欄位、成功/失敗 response 格式與 `api-specification.md`/`api-business-logic.md` #4 一致；**DB transaction 是刻意的行為改善(intentional reliability improvement)，不是 mismatch**；**Mail 內容/收件人邏輯已改善(環境變數化)，模板排版本身是重建品，非逐字複製**(已標示為缺口，見 §1.2)；**Queue 未實作是已知、已標示的差距**(改為同步寄信，不影響 API 成功路徑的可觀察行為)
 
-其餘 14 支尚未實作,無行為可比對。**唯一已知會在實作時產生 mismatch 風險的是 #11 `PUT /admin/contact/{id}`**——因為舊行為本身就是「看似更新、實際無效」，新專案不應該原樣照抄一個已知無效的實作，但改變行為又是對現有系統的偏離，需要產品/需求方決策後才能定義「正確」行為與「mismatch」的基準。
+其餘 13 支尚未實作,無行為可比對。**唯一已知會在實作時產生 mismatch 風險的是 #11 `PUT /admin/contact/{id}`**——因為舊行為本身就是「看似更新、實際無效」，新專案不應該原樣照抄一個已知無效的實作，但改變行為又是對現有系統的偏離，需要產品/需求方決策後才能定義「正確」行為與「mismatch」的基準。
 
 ---
 
@@ -339,7 +389,8 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 | 密碼雜湊 | bcrypt | bcrypt(`bcryptjs`),且比對前多一層 hash 格式驗證 | Node 更嚴謹 |
 | JWT secret 管理 | Passport 用 OAuth client secret(資料庫存) | `.env` 的 `JWT_SECRET`,Zod 強制 ≥16 字元 | 設計改善,但**部署時必須確保 production `JWT_SECRET` 是高強度隨機值，不能沿用 `.env.example` 的 placeholder** |
 | CORS | 未知(規格文件未記錄舊 Laravel CORS 設定) | 預設 `CORS_ALLOWED_ORIGINS=''`(全擋)，機制良好但**尚未設定正式 origin** | 上線前必須設定,否則前端會被 CORS 擋下 |
-| Email 收件人 | 硬編碼在程式碼 | 尚未實作;若比照舊行為建議改用環境變數(known-legacy-issues #11 已建議) | 待實作時決定 |
+| Email 收件人 | 硬編碼在程式碼 | ✅ 已改為 `RECIPIENT_EMAIL` 環境變數(修正已知問題 #11) | 已改善,**部署時務必在 Zeabur 設定真實值,`.env.example` 只是 placeholder** |
+| SMTP 憑證 | 不適用(舊系統無此概念) | `MAIL_USERNAME`/`MAIL_PASSWORD` 走環境變數,錯誤 log 只記 `error.name`,不含原始 error 物件或密碼 | 新增面,已依「不得 hardcode / log 不含 secret」要求實作 |
 | SQL Injection | Laravel 參數化查詢(已確認安全) | Node 用 `mysql2` 已實作部分皆用參數化查詢(`?` placeholder) | 一致,無新增風險 |
 | Helmet / HTTP headers | 前端 `server/middleware/helmet.ts` 有掛;Laravel 端未知 | ✅ `backend/src/app.ts` 已掛 `helmet()` | Node 端已具備 |
 
@@ -350,8 +401,8 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 | 測試類型 | 現況 |
 |---|---|
 | Unit tests | `auth.service.test.ts`(5)、`legacy-validation-error.test.ts`(2)、`laravel-pagination.test.ts`(5，新增) |
-| Integration tests | `auth-login.test.ts`(13)、`seo.test.ts`(5，新增)、`faq.test.ts`(4，新增)、`contact-class.test.ts`(5，新增)、`contact-quest.test.ts`(9，新增)+ 基礎設施類測試(`env`/`error-handler`/`graceful-shutdown`/`health`/`not-found`/`ready`/`validate-request`，共 14 支，`validate-request` 新增 1 支 Express 5 query getter 回歸測試) |
-| **完全缺少測試的 API** | **14 / 19 支**（`contact` POST + 全部 9 支 `admin/*` + `register`/`logout` 兩支 stub，原本 18 支，本階段減少 4 支） |
+| Integration tests | `auth-login.test.ts`(13)、`seo.test.ts`(5)、`faq.test.ts`(4)、`contact-class.test.ts`(5)、`contact-quest.test.ts`(9)、`contact.test.ts`(14，新增)+ 基礎設施類測試(`env`/`error-handler`/`graceful-shutdown`/`health`/`not-found`/`ready`/`validate-request`，共 14 支) |
+| **完全缺少測試的 API** | **13 / 19 支**（全部 9 支 `admin/*` + `register`/`logout` 兩支 stub，原本 14 支，本階段減少 1 支） |
 | Migration parity tests | 無——`backend/scripts/verify-schema.ts` 存在但只驗證 schema 結構,不是「舊資料庫資料 vs 新程式行為」的 parity test |
 | Frontend/backend contract tests | 無——目前沒有任何跨 repo 的 contract test(例如用 `openapi.yaml` 對前端呼叫做 schema 驗證) |
 
@@ -366,8 +417,8 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 1. ~~**`GET /api/v2/seo`**~~ —— **已於第三階段完成**
 2. ~~**`GET /api/v2/faq`**~~ —— **已於第三階段完成**(API 行為),cache 仍待補
 3. ~~**`GET /api/v2/contact-class`** + **`GET /api/v2/contact-quest`**~~ —— **已於第三階段完成**
-4. **`POST /api/v2/contact`** —— **下一批建議項目**。核心轉換流程,依賴 `contact` + `contact_list` 兩表,建議直接補上 transaction(修正已知問題 #8,不影響成功路徑行為)；**Mail/Queue 依賴需要先決定技術方案**(是否要 nodemailer + BullMQ,或先用同步寄信简化,見下方「待決策」)
-5. **`POST /api/v2/auth/register`** —— 路由與驗證已存在,只差 controller 的 bcrypt + insert 邏輯,補完即可
+4. ~~**`POST /api/v2/contact`**~~ —— **已於第四階段完成**(API/DB transaction/同步 Mail),Queue 仍待補(deferred)
+5. **`POST /api/v2/auth/register`** —— **下一批建議項目**。路由與驗證已存在,只差 controller 的 bcrypt + insert 邏輯,補完即可
 6. **`POST /api/v2/auth/logout`** —— 同上,路由與保護已存在,只差 token 失效邏輯(JWT 是無狀態的,若要做到真正「失效」需要額外的 blocklist 機制,需先決定要不要做,或先做成「僅前端清除 token」的簡化版)
 7. **`GET/DELETE /api/v2/admin/contact`** + **`GET /api/v2/admin/contact/{id}`** + **`GET /api/v2/admin/contact/search/search-company`** —— 後台核心讀取/刪除功能,先做這些(邏輯明確、無疑點)
 8. **`admin/contact-class` 全部 4 支** —— 邏輯明確,可與上一批一起做
@@ -379,7 +430,7 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 - known-legacy-issues #2（admin/* 是否要補上真正的 `is_admin` 檢查——這是行為變更）
 - known-legacy-issues #6（`seo`/`faq` 的 `del` 未過濾是否為疏漏）
 - known-legacy-issues #10（`contact-class` 硬刪除 vs `del` 軟刪除語意是否統一）
-- Mail/Queue 技術選型（沿用「同步寄信」簡化版，或導入 BullMQ+Redis 等效物）
+- ~~Mail/Queue 技術選型~~ —— **已於第四階段決定**：Mail 採 Nodemailer 同步寄信；Queue 刻意排除在本階段外，若未來需要非同步化(例如寄信對外部 SMTP 延遲敏感)，需另開任務評估 BullMQ+Redis 等方案
 
 ---
 
@@ -389,19 +440,19 @@ OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全�
 
 | # | 條件 | 目前狀態 |
 |---|---|---|
-| 1 | frontend 使用中的 API 全部 DONE | ⚠️ 進行中：11/19 前端使用中的端點仍是 NOT_IMPLEMENTED(原 15，本階段完成 4 支) |
+| 1 | frontend 使用中的 API 全部 DONE | ⚠️ 進行中：10/19 前端使用中的端點仍是 NOT_IMPLEMENTED(原 11，本階段完成 `POST /contact`) |
 | 2 | auth flow 完整(login/register/logout 皆可用) | ❌ 僅 login DONE,register/logout 為 501 stub |
 | 3 | admin authorization 確認 | ❌ 待需求方決策(known-legacy-issues #2)+ 待實作 |
 | 4 | database schema compatible | ✅ 已完成(`backend/migrations/` 與 database-schema.md 一致) |
-| 5 | mail confirmed | ❌ 未實作,連套件依賴都沒有 |
-| 6 | queue confirmed | ❌ 未實作,連套件依賴都沒有 |
+| 5 | mail confirmed | ⚠️ 進行中：`POST /contact` 的同步 Mail 已 DONE,但原始模板內容/排版是重建品非逐字複製(已知缺口，見 §1.2);其餘尚無其他端點需要 mail |
+| 6 | queue confirmed | ❌ 刻意 deferred(本階段任務範圍明確排除,`POST /contact` 用同步寄信) |
 | 7 | cache confirmed | ❌ FAQ 24hr cache 仍未實作(API 行為本身已 DONE) |
 | 8 | CORS confirmed | ⚠️ 機制已就緒,但正式 origin 尚未設定 |
-| 9 | backend tests passed | ✅ 65/65 全數通過(本階段從 36 增加到 65),覆蓋率提升到 5/19 端點 |
+| 9 | backend tests passed | ✅ 79/79 全數通過(本階段從 65 增加到 79),覆蓋率提升到 6/19 端點 |
 | 10 | frontend build passed | ✅ `npm run build` 通過(與 API 是否可用無關,純建置檢查) |
 | 11 | staging integration test passed | ❌ 尚未進行(backend 功能仍不足,無法有意義地跑 staging 測試) |
 
-**目前 11 項中 3 項達成、1 項進行中(schema/build/測試綠燈已達成，frontend API 覆蓋率從 21% 提升到 42%)，其餘 7 項仍未達成。距離可以考慮 cutover 仍早期，核心阻礙是 `POST /contact` 與整個 `admin/*`(12/19 端點,63%)尚未開始實作。**
+**目前 11 項中 3 項達成、2 項進行中(schema/build/測試綠燈已達成，frontend API 覆蓋率從 42% 提升到 47%，mail 基礎行為已可用但模板內容有已知缺口)，其餘 6 項仍未達成。距離可以考慮 cutover 仍早期，核心阻礙是整個 `admin/*`(9/19 端點,47%)尚未開始實作，以及 auth register/logout 兩支 stub。**
 
 ---
 

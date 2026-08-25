@@ -2,6 +2,7 @@ import pino from 'pino';
 import { vi } from 'vitest';
 import type { Express } from 'express';
 import type { Pool } from 'mysql2/promise';
+import type { Transporter } from 'nodemailer';
 import { createApp } from '../../src/app';
 import { loadEnv, type Env } from '../../src/config/env';
 
@@ -33,10 +34,19 @@ export interface TestApp {
   pool: Pool;
 }
 
-export function buildTestApp(options: { pool?: Pool; env?: Partial<Env> } = {}): TestApp {
+export function createMockMailTransport(overrides: Partial<Transporter> = {}): Transporter {
+  return {
+    sendMail: vi.fn().mockResolvedValue({ messageId: 'mock-message-id' }),
+    ...overrides,
+  } as unknown as Transporter;
+}
+
+export function buildTestApp(
+  options: { pool?: Pool; env?: Partial<Env>; mailTransport?: Transporter | null } = {},
+): TestApp {
   const env = { ...loadEnv(TEST_ENV_SOURCE), ...options.env };
   const pool = options.pool ?? createMockPool();
   const logger = pino({ level: 'silent' });
-  const app = createApp({ env, pool, logger });
+  const app = createApp({ env, pool, logger, mailTransport: options.mailTransport });
   return { app, env, pool };
 }

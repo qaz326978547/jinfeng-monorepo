@@ -2,9 +2,11 @@ import express, { type Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import type { Pool } from 'mysql2/promise';
+import type { Transporter } from 'nodemailer';
 import type { Logger } from 'pino';
 import { buildCorsOptions } from './config/cors';
 import type { Env } from './config/env';
+import { buildMailConfig } from './infrastructure/mail/mail.config';
 import { createHttpLogger } from './infrastructure/logger/http-logger';
 import { errorHandler } from './middleware/error-handler';
 import { notFoundHandler } from './middleware/not-found';
@@ -15,6 +17,8 @@ export interface CreateAppOptions {
   env: Env;
   pool: Pool;
   logger: Logger;
+  /** Test-only mail transport override — see modules/contact/contact.routes.ts. */
+  mailTransport?: Transporter | null | undefined;
 }
 
 /**
@@ -22,7 +26,7 @@ export interface CreateAppOptions {
  * listen()/shutdown so the app itself stays trivially testable with
  * supertest.
  */
-export function createApp({ env, pool, logger }: CreateAppOptions): Express {
+export function createApp({ env, pool, logger, mailTransport }: CreateAppOptions): Express {
   const app = express();
 
   // Zeabur terminates TLS at a reverse proxy in front of this container.
@@ -39,6 +43,8 @@ export function createApp({ env, pool, logger }: CreateAppOptions): Express {
       pool,
       jwtSecret: env.JWT_SECRET,
       jwtExpiresIn: env.JWT_EXPIRES_IN,
+      mailConfig: buildMailConfig(env),
+      mailTransport,
       logger,
     }),
   );

@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { isAppError } from '../shared/errors/app-error';
 import { LegacyValidationError } from '../shared/errors/legacy-validation-error';
+import { FormRequestValidationError } from '../shared/errors/form-request-validation-error';
 
 interface ErrorResponseBody {
   message: string;
@@ -15,6 +16,11 @@ interface LegacyValidationErrorBody {
   errors: Record<string, string[]>;
 }
 
+interface FormRequestValidationErrorBody {
+  status: 'error';
+  message: string;
+}
+
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   const requestId = req.requestId ?? 'unknown';
 
@@ -24,6 +30,19 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     const body: LegacyValidationErrorBody = {
       message: err.message,
       errors: err.errors,
+    };
+    res.status(err.statusCode).json(body);
+    return;
+  }
+
+  // Must also be checked before isAppError(err) for the same reason as
+  // LegacyValidationError above — FormRequestValidationError extends
+  // AppError but has its own {status,message} shape, not the generic
+  // {message,code,requestId} envelope.
+  if (err instanceof FormRequestValidationError) {
+    const body: FormRequestValidationErrorBody = {
+      status: 'error',
+      message: err.message,
     };
     res.status(err.statusCode).json(body);
     return;
