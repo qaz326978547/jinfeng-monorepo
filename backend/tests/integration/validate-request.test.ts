@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { buildTestApp } from '../helpers/build-test-app';
+import { buildTestApp, createMockPool } from '../helpers/build-test-app';
 
 // Exercises the Zod validate-request middleware through the real
 // /api/v2/auth/login route, which is wired with loginRequestSchema and
@@ -32,5 +32,27 @@ describe('validate-request middleware', () => {
     // fails credential validation with 401, proving validation itself did
     // not block a well-formed request.
     expect(res.status).toBe(401);
+  });
+
+  // Express 5's req.query is a getter that re-parses the URL on every
+  // access, so a naive Object.assign(req.query, parsed) silently loses the
+  // coerced value on the next read — see validate-request.ts. Exercised
+  // through the real /api/v2/contact-quest route (the only current query
+  // schema consumer); full behavior coverage lives in
+  // tests/integration/contact-quest.test.ts.
+  it('persists a coerced query value across the request (Express 5 req.query getter)', async () => {
+    const pool = createMockPool({
+      query: vi
+        .fn()
+        .mockImplementation((sql: string) =>
+          Promise.resolve(sql.includes('COUNT(*)') ? [[{ total: 0 }], []] : [[], []]),
+        ),
+    });
+    const { app } = buildTestApp({ pool });
+
+    const res = await request(app).get('/api/v2/contact-quest?page=2');
+
+    expect(res.status).toBe(200);
+    expect(res.body.current_page).toBe(2);
   });
 });

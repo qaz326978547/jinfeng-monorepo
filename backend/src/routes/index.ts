@@ -2,6 +2,10 @@ import { Router } from 'express';
 import type { Pool } from 'mysql2/promise';
 import type { Logger } from 'pino';
 import { createAuthRouter } from '../modules/auth/auth.routes';
+import { createContactClassRouter } from '../modules/contact-class/contact-class.routes';
+import { createContactQuestRouter } from '../modules/contact-quest/contact-quest.routes';
+import { createFaqRouter } from '../modules/faq/faq.routes';
+import { createSeoRouter } from '../modules/seo/seo.routes';
 import { createHealthRouter } from './health/health.route';
 
 export const API_V2_BASE_PATH = '/api/v2';
@@ -30,8 +34,11 @@ export function createRootRouter(deps: RouterDeps): Router {
       logger: deps.logger,
     }),
   );
-  // Future modules (seo, contact, contact-class, contact-quest, faq, admin/*)
-  // mount here, e.g. apiV2.use('/seo', createSeoRouter(...)).
+  apiV2.use('/seo', createSeoRouter({ pool: deps.pool }));
+  apiV2.use('/faq', createFaqRouter({ pool: deps.pool }));
+  apiV2.use('/contact-class', createContactClassRouter({ pool: deps.pool }));
+  apiV2.use('/contact-quest', createContactQuestRouter({ pool: deps.pool }));
+  // Future modules (contact, admin/*) mount here.
   router.use(API_V2_BASE_PATH, apiV2);
 
   return router;
