@@ -1,14 +1,13 @@
 import type { Request, RequestHandler, Response } from 'express';
 import { asyncHandler } from '../../shared/http/async-handler';
-import { NotImplementedError } from '../../shared/errors/app-error';
 import type { AuthService } from './auth.service';
-import type { LoginRequest } from './auth.schemas';
+import type { LoginRequest, RegisterRequest } from './auth.schemas';
 
 /**
- * login is a factory, not a plain handler: it needs an AuthService instance
- * built once at the composition root (auth.routes.ts) with its injected
- * dependencies (JWT settings, repository, logger) — see plan.md "資料流程".
- * register/logout remain deferred stubs; out of this feature's scope.
+ * login/register are factories, not plain handlers: they need an
+ * AuthService instance built once at the composition root (auth.routes.ts)
+ * with its injected dependencies (JWT settings, bcrypt rounds, repository,
+ * logger) — see plan.md "資料流程".
  */
 export function createLoginHandler(authService: AuthService): RequestHandler {
   return asyncHandler(async (req: Request, res: Response) => {
@@ -18,10 +17,25 @@ export function createLoginHandler(authService: AuthService): RequestHandler {
   });
 }
 
-export function register(_req: Request, _res: Response): void {
-  throw new NotImplementedError('POST /api/v2/auth/register is not implemented yet');
+export function createRegisterHandler(authService: AuthService): RequestHandler {
+  return asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as RegisterRequest;
+    await authService.register(body);
+    res.status(201).json({ message: '註冊成功' });
+  });
 }
 
-export function logout(_req: Request, _res: Response): void {
-  throw new NotImplementedError('POST /api/v2/auth/logout is not implemented yet');
+/**
+ * Stateless logout (specs/backend/laravel-to-node-parity.md §10.9/§10.11,
+ * intentional design decision): the `authenticate` middleware ahead of this
+ * route on auth.routes.ts already rejects a missing/invalid/expired token
+ * with 401, so reaching this handler means req.user is populated and the
+ * token is currently valid. There is nothing further to check or revoke —
+ * no DB write, no blacklist, no Redis. The same JWT remains technically
+ * valid against `authenticate` until it naturally expires; the frontend is
+ * responsible for discarding it from localStorage (not implemented yet,
+ * see the parity doc).
+ */
+export function logout(_req: Request, res: Response): void {
+  res.status(200).json({ message: '登出成功' });
 }

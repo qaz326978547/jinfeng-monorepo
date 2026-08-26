@@ -43,6 +43,7 @@ export function createApp({ env, pool, logger, mailTransport }: CreateAppOptions
       pool,
       jwtSecret: env.JWT_SECRET,
       jwtExpiresIn: env.JWT_EXPIRES_IN,
+      bcryptSaltRounds: env.BCRYPT_SALT_ROUNDS,
       mailConfig: buildMailConfig(env),
       mailTransport,
       logger,

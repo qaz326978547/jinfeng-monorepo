@@ -13,7 +13,20 @@ const envSchema = z.object({
   DB_CONNECTION_LIMIT: z.coerce.number().int().positive().default(10),
 
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
-  JWT_EXPIRES_IN: z.string().default('1d'),
+  /**
+   * Deliberately an allowlist, not `z.string()` — any jsonwebtoken/ms-parseable
+   * string (e.g. "365d", "10y") would otherwise be accepted, including
+   * effectively-permanent values that make stateless logout meaningless (see
+   * specs/backend/laravel-to-node-parity.md §10.5/§10.9). Product decision:
+   * default/max is 30d so a logged-in user stays logged in across browser
+   * restarts without re-authenticating, while still bounding how long a
+   * stolen or "logged out" token can remain valid.
+   */
+  JWT_EXPIRES_IN: z
+    .enum(['1d', '7d', '14d', '30d'], {
+      error: 'JWT_EXPIRES_IN must be one of: 1d, 7d, 14d, 30d',
+    })
+    .default('30d'),
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(20).default(10),
 
   CORS_ALLOWED_ORIGINS: z.string().default(''),

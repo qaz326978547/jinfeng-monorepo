@@ -1,15 +1,19 @@
 import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import type { Logger } from 'pino';
+import { FormRequestValidationError } from '../../shared/errors/form-request-validation-error';
 import { UnauthorizedError } from '../../shared/errors/app-error';
-import type { UserRepository } from './user.repository';
+import { DuplicateEmailError, type UserRepository } from './user.repository';
+import type { RegisterRequest } from './auth.schemas';
 
 const CREDENTIAL_ERROR_MESSAGE = '帳號或密碼錯誤';
+const DUPLICATE_EMAIL_MESSAGE = 'email 已被使用';
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$/;
 
 export interface AuthServiceDeps {
   jwtSecret: string;
   jwtExpiresIn: string;
+  bcryptSaltRounds: number;
   repository: UserRepository;
   logger: Logger;
 }
@@ -34,12 +38,14 @@ export function mapIsAdmin(value: number): boolean {
 export class AuthService {
   private readonly jwtSecret: string;
   private readonly jwtExpiresIn: string;
+  private readonly bcryptSaltRounds: number;
   private readonly repository: UserRepository;
   private readonly logger: Logger;
 
   constructor(deps: AuthServiceDeps) {
     this.jwtSecret = deps.jwtSecret;
     this.jwtExpiresIn = deps.jwtExpiresIn;
+    this.bcryptSaltRounds = deps.bcryptSaltRounds;
     this.repository = deps.repository;
     this.logger = deps.logger;
   }
@@ -64,12 +70,11 @@ export class AuthService {
     }
 
     const signOptions: SignOptions = {
-      // JWT_EXPIRES_IN is only validated by Zod as a non-empty string
-      // (src/config/env.ts); its concrete duration-string format is
-      // validated by jsonwebtoken itself at sign time, not narrowed to
-      // `ms`'s StringValue type here — an invalid value surfaces as a
-      // thrown error from this call, not at startup (spec.md FR-007,
-      // research.md #4).
+      // JWT_EXPIRES_IN is validated by Zod against a fixed allowlist
+      // (1d/7d/14d/30d — src/config/env.ts) before the app ever starts, so
+      // this is always one of those four literal strings here; the cast is
+      // just to satisfy jsonwebtoken's `StringValue` type, which this
+      // project doesn't otherwise import (spec.md FR-007, research.md #4).
       expiresIn: this.jwtExpiresIn as NonNullable<SignOptions['expiresIn']>,
     };
 
@@ -80,5 +85,28 @@ export class AuthService {
     );
 
     return { token };
+  }
+
+  /**
+   * Legacy contract (api-specification.md #7): insert-only, bcrypt hash,
+   * never returns a token or logs the user in — the caller must call
+   * login() separately afterwards, matching Laravel's original behavior.
+   */
+  async register(input: RegisterRequest): Promise<void> {
+    const passwordHash = await bcrypt.hash(input.password, this.bcryptSaltRounds);
+
+    try {
+      await this.repository.createUser({
+        name: input.name,
+        email: input.email,
+        passwordHash,
+        ...(input.is_admin !== undefined ? { isAdmin: input.is_admin } : {}),
+      });
+    } catch (error) {
+      if (error instanceof DuplicateEmailError) {
+        throw new FormRequestValidationError(DUPLICATE_EMAIL_MESSAGE);
+      }
+      throw error;
+    }
   }
 }

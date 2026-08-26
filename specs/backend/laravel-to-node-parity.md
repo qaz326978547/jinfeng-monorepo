@@ -11,21 +11,22 @@
 
 ## 1. 整體完成百分比
 
-**19 支 Laravel API 中，Node 後端目前 5 支完全 DONE + 1 支 API 行為 DONE（cache 待補）+ 1 支 API/DB/Mail DONE（Queue 待補）（合計 7/19 ≈ 37%）。**
+**19 支 Laravel API 中，Node 後端目前 6 支完全 DONE + 2 支 DONE 但帶有已標示的非功能性缺口（合計 8/19 ≈ 42%）。**
+
+**⚠️ 這不代表整個 auth flow 已 production-ready**——`register`/`logout` 的 API 本身已完成，但 frontend 端(localStorage 動態讀取、logout UI、401 自動清 token、`/admin/*` route guard)完全未跟進，見 §10.13。
 
 | 狀態 | 數量 | 佔比 | 說明 |
 |---|---|---|---|
-| **DONE** | 5 | 26% | `POST /api/v2/auth/login`、`GET /api/v2/seo`、`GET /api/v2/contact-class`、`GET /api/v2/contact-quest`、`POST /api/v2/contact` — 完整實作 + integration/unit test 全過 |
+| **DONE** | 6 | 32% | `POST /api/v2/auth/login`、`POST /api/v2/auth/register`、`POST /api/v2/auth/logout`、`GET /api/v2/seo`、`GET /api/v2/contact-class`、`GET /api/v2/contact-quest` — 完整實作 + integration/unit test 全過 |
 | **DONE(API+DB+Mail)/PARTIAL(Queue)** | 1 | 5% | `POST /api/v2/contact` — API 行為、DB atomicity、Mail(同步)皆 DONE；**Queue 未實作**(見 §1.2)，**不算 production parity 完整完成** |
 | **DONE(API)/PARTIAL(cache)** | 1 | 5% | `GET /api/v2/faq` — 查詢/排序/欄位投影與 Laravel 完全一致，**但 24 小時 cache 尚未實作**（見 §1.1），留有明確 TODO，**不算 production parity 完整完成** |
-| **PARTIAL** | 2 | 11% | `POST /api/v2/auth/register`、`POST /api/v2/auth/logout` — 路由已掛載、Zod 驗證已定義,但 controller 直接 `throw NotImplementedError`（HTTP 501），無任何商業邏輯、無測試 |
 | **NOT_IMPLEMENTED** | 11 | 58% | 全部 9 支 `admin/*` — **backend/src/routes 完全沒有掛載對應路由**，呼叫會落到 `notFoundHandler`(404) |
-| **BEHAVIOR_MISMATCH** | 0 | — | 已實作的 6 支經 integration test 驗證，與規格一致，無 mismatch（`POST /contact` 的 DB atomicity 是刻意的行為改善，非 mismatch，見 §1.2） |
+| **BEHAVIOR_MISMATCH** | 0 | — | 已實作的 8 支經 integration test 驗證，與規格一致，無 mismatch（`POST /contact` 的 DB atomicity、`logout` 的 stateless 設計皆是刻意的行為改善/決策，非 mismatch） |
 | **UNKNOWN** | 0 | — | 無 |
 
-**結論：`backend/` 現在能正確服務首頁 SEO meta、FAQ 頁、報名表單的下拉選單，且報名表單本身現在也能真正「送出」（含 DB 寫入 + Email 通知），但整個後台管理（`admin/*`，含檢視/編輯/刪除報名資料）仍未實作，還不能取代 Laravel 後端。**
+**結論：`backend/` 現在能正確服務首頁 SEO meta、FAQ 頁、報名表單的下拉選單與送出、完整的登入/註冊/登出 API，但整個後台管理（`admin/*`，含檢視/編輯/刪除報名資料）仍未實作，且 frontend 尚未跟上 auth API 的變化，還不能取代 Laravel 後端。**
 
-OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全部 19 個 operation(15 個 path），品質良好、可直接作為實作依據 —— 已實作的 6 支皆通過 `npm run openapi:validate`。
+OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全部 19 個 operation(15 個 path），品質良好、可直接作為實作依據 —— 已實作的 8 支皆通過 `npm run openapi:validate`。
 
 ### 1.1 第三階段更新（2026-08-26）—— 第一批 Public Read API
 
@@ -78,6 +79,30 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 
 **Mail tests 如何 mock**：`ContactRouterDeps`/`RouterDeps`/`CreateAppOptions` 新增了測試專用的 `mailTransport` 覆寫欄位（production 從不設定，只有 `buildTestApp({mailTransport})` 會用到），讓 integration test 能注入 `createMockMailTransport()` 直接斷言 `sendMail` 呼叫內容與失敗行為，全程不建立任何真實 SMTP 連線、不連正式環境。
 
+### 1.3 第五階段更新（2026-08-26）—— `POST /api/v2/auth/register` + `POST /api/v2/auth/logout`
+
+**Register: DONE / Logout: DONE (stateless semantics, 產品決策見 §10.13)。**
+
+新增/修改檔案：
+
+- `backend/src/config/env.ts`（修改）—— `JWT_EXPIRES_IN` 從 `z.string()` 改為固定 allowlist `z.enum(['1d','7d','14d','30d'])`，預設值從 `1d` 改為 `30d`
+- `backend/.env.example`（修改）—— 同步改為 `JWT_EXPIRES_IN=30d`，加註允許值/預設值/上限
+- `backend/src/modules/auth/user.repository.ts`（修改）—— 新增 `createUser()`、`DuplicateEmailError`、依 `users_email_unique` constraint 名稱辨識重複 email 的 helper
+- `backend/src/modules/auth/auth.schemas.ts`（修改）—— `registerRequestSchema` 加上 `password === password_confirmation` 的 `.refine()`，required 欄位補上 `{error}` 客製訊息
+- `backend/src/modules/auth/auth.service.ts`（修改）—— 新增 `register()`（bcrypt hash + repository 呼叫 + `DuplicateEmailError` → `FormRequestValidationError` 轉譯），`AuthServiceDeps` 新增 `bcryptSaltRounds`
+- `backend/src/modules/auth/auth.controller.ts`（修改）—— `register`/`logout` 從 501 stub 換成真正實作
+- `backend/src/modules/auth/auth.routes.ts`（修改）—— `/register` 補上 `formRequestErrorFormat: true`（修正 §10.3 分析階段發現的既有缺口）
+- `backend/src/app.ts`、`backend/src/routes/index.ts`（修改）—— 把 `env.BCRYPT_SALT_ROUNDS` 組裝並傳給 auth router
+- `backend/tests/integration/env.test.ts`（修改）—— 更新預設值斷言，新增 JWT_EXPIRES_IN allowlist 完整測試
+- `backend/tests/unit/auth.service.test.ts`（修改）—— 新增 `register()` unit tests + 30d exp 驗證
+- `backend/tests/integration/auth-register.test.ts`（新增）、`backend/tests/integration/auth-logout.test.ts`（新增）
+
+**JWT_EXPIRES_IN 產品決策（呼應 §10.5/§10.9 的分析）**：從單純「限制上限」進一步收斂為**固定 allowlist**(`1d`/`7d`/`14d`/`30d`)，而不是「字串 + 範圍檢查」——因為 `z.string()` 搭配範圍檢查仍然要解析 `ms` 字串格式，允許意外的格式變體；改用列舉直接把「允許的值」收斂到 4 個明確選項，`31d`/`60d`/`90d`/`365d`/`10y`/`1h`~`12h`/空字串/任意其他 `jsonwebtoken`/`ms` 可解析字串全部在**啟動階段**被拒絕（`loadEnv()` 在 `server.ts::main()` 最開頭被無保護呼叫，驗證失敗直接讓 process crash，不會等到第一次 login 才 500）。預設值與上限皆定為 `30d`——產品需求是「只要 JWT 未過期且使用者沒有主動登出，就應該長時間維持登入狀態（涵蓋關閉/重開瀏覽器、重新整理）」，`30d` 是兩個目標的折衷：夠長，讓 frontend 未來把 token 存進 localStorage 後不會頻繁要求重新登入；同時仍是一個明確的上限，不是永久 JWT。
+
+**Duplicate email 辨識方式**：`users` 表除了自增 PK 外只有一個唯一鍵 `users_email_unique`(email)（`backend/migrations/001_create_tables.sql` 第 45 行）。`isDuplicateEmailError()` 同時檢查 `error.code === 'ER_DUP_ENTRY'` **且** `error.sqlMessage` 包含 `users_email_unique` 這個 constraint 自己的名稱——這是比對我們自己定義的、穩定的索引識別碼，不是對任意錯誤訊息字串做脆弱的猜測比對；即使未來這張表新增其他唯一鍵，其他鍵觸發的 `ER_DUP_ENTRY` 也不會被誤判成 email 重複（已有專門測試覆蓋這個情境）。
+
+**Logout 是 stateless 設計，不是遺漏**：`authenticate` middleware 已經確保跑到 `logout` handler 時一定有合法、未過期的 token；handler 本身不做任何 DB 寫入、不建 blacklist、不用 Redis、不改 DB schema。**同一顆尚未過期的 JWT 在呼叫 logout 之後仍然對 `authenticate` 有效**——這不是 bug，是 §10.9 選定方案 A 的明確 security trade-off，已有專門測試(`auth-logout.test.ts`)驗證並記錄這個行為。真正讓單一瀏覽器完成登出，要靠未來的 frontend 任務清除 `localStorage` 的 token。
+
 ---
 
 ## 2. API Parity Matrix
@@ -92,8 +117,8 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | 4 | POST | `/api/v2/contact` | **DONE(API+DB+Mail)/PARTIAL(Queue)** | ✅ | ✅ 是(核心轉換流程) | ✅ 14 tests | ✅ |
 | 5 | GET | `/api/v2/faq` | **DONE(API)/PARTIAL(cache)** | ✅ | ✅ 是 | ✅ 4 tests | ✅ |
 | 6 | POST | `/api/v2/auth/login` | **DONE** | ✅ | ✅ 是 | ✅ 18 tests | ✅ |
-| 7 | POST | `/api/v2/auth/register` | PARTIAL(501 stub) | ✅(stub) | ⚠️ 前端有呼叫但**未接 UI**(見 4.2) | ❌ | ✅ |
-| 8 | POST | `/api/v2/auth/logout` | PARTIAL(501 stub) | ✅(stub) | ❌ 前端完全沒有登出功能 | ❌ | ✅ |
+| 7 | POST | `/api/v2/auth/register` | **DONE** | ✅ | ⚠️ 前端有呼叫但**未接 UI**(死碼，見 4.2) | ✅ 11 tests | ✅ |
+| 8 | POST | `/api/v2/auth/logout` | **DONE(stateless)** | ✅ | ❌ 前端完全沒有登出功能(見 §10.13) | ✅ 6 tests | ✅ |
 | 9 | GET | `/api/v2/admin/contact` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
 | 10 | GET | `/api/v2/admin/contact/{id}` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
 | 11 | PUT/PATCH | `/api/v2/admin/contact/{id}` | NOT_IMPLEMENTED + **KNOWN_LEGACY_ISSUE** | ❌ | ⚠️ 是,但前端呼叫**沒帶 `{id}`**(見 5.1) | ❌ | ✅ |
@@ -173,20 +198,24 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 - Cache/Mail/Queue：無
 - **Test 覆蓋**：`tests/integration/auth-login.test.ts`(13)、`tests/unit/auth.service.test.ts`(5)
 
-#### #7 `POST /api/v2/auth/register` — PARTIAL
+#### #7 `POST /api/v2/auth/register` — **DONE**
 - Laravel：`AuthController.php` (`register`) + `CreateUser.php`
-- Node route：**已掛載**(`router.post('/register', validateRequest({body: registerRequestSchema}), register)`)
-- Node controller：`auth.controller.ts::register` → **`throw new NotImplementedError(...)` → HTTP 501**，沒有任何 DB 寫入邏輯
-- Request validation：`registerRequestSchema` 已定義(Zod)，欄位與規格一致(`name`/`email`/`password`≥6/`password_confirmation`/`is_admin`)，**但目前驗證通過後直接 501，驗證本身沒有實質意義**
-- `BCRYPT_SALT_ROUNDS` 環境變數已在 `src/config/env.ts` 定義，但**目前整個 `src/` 沒有任何地方讀取它**（因為 register 尚未實作雜湊邏輯）
-- DB query：規格要求 insert `users`，Node 尚未實作
+- Node：`auth.routes.ts` → `auth.controller.ts::createRegisterHandler` → `auth.service.ts::AuthService.register` → `user.repository.ts::UserRepository.createUser`
+- Request validation：`registerRequestSchema`(Zod)，欄位與規格一致(`name`/`email`/`password`≥6/`password_confirmation`/`is_admin`)，新增 `password === password_confirmation` 的 `.refine()`；路由已補上 `formRequestErrorFormat: true`(修正 §10.3 分析階段發現的缺口)，驗證失敗回 `400 {status:"error", message}`
+- `BCRYPT_SALT_ROUNDS` 已接上：`AuthService.register()` 用它呼叫 `bcrypt.hash()`
+- DB query：`INSERT INTO users (name, email, password[, is_admin])`——`is_admin` 只在有提供時才出現在欄位清單，未提供時讓 DB `DEFAULT 0` 生效
+- Duplicate email：`UserRepository` 依 `users_email_unique` constraint 名稱辨識 `ER_DUP_ENTRY`，轉成 `400 {status:"error", message:"email 已被使用"}`（見 §1.3 辨識方式說明）
+- Response：成功 `201 {message:"註冊成功"}`，不回 token、不自動登入，與規格一致
 - Cache/Mail/Queue：無
+- **Test**：`tests/integration/auth-register.test.ts`(11)+ `tests/unit/auth.service.test.ts` 的 `register()` 區塊(4)
 
-#### #8 `POST /api/v2/auth/logout` — PARTIAL
+#### #8 `POST /api/v2/auth/logout` — **DONE(stateless)**
 - Laravel：`AuthController.php` (`logout`)——**KNOWN_LEGACY_ISSUE**：舊系統沒有中介層保護,未帶 token 會 500
 - Node route：**已掛載且已用 `authenticate(jwtSecret)` 中介層保護**（`router.post('/logout', authenticate(deps.jwtSecret), logout)`）—— **這點已經修正了舊系統的已知問題**(未帶 token 會正確回 401，不會 500)
-- Node controller：`logout` → `throw new NotImplementedError(...)` → HTTP 501，沒有任何 token 失效邏輯
+- Node controller：`logout` → 直接回 `200 {message:"登出成功"}`，不做任何 DB 寫入(方案 A，見 §10.9/§10.13)
+- **明確的 security trade-off**：同一顆尚未過期的 token 在 logout 後仍對 `authenticate` 有效，這是刻意設計，已有測試驗證
 - Cache/Mail/Queue：無
+- **Test**：`tests/integration/auth-logout.test.ts`(6)
 
 #### #9 `GET /api/v2/admin/contact`
 - Laravel：`ContactController.php` (`index`)
@@ -255,14 +284,14 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 
 | 功能領域 | 項目 | Laravel 行為 | Node 現況 | 狀態 |
 |---|---|---|---|---|
-| **Auth** | register | bcrypt 雜湊 + insert `users` | 501 stub，無邏輯 | NOT_IMPLEMENTED |
+| **Auth** | register | bcrypt 雜湊 + insert `users` | ✅ 已實作，bcrypt 雜湊 + duplicate email 偵測 + `is_admin` DB default | **DONE** |
 | | login | Passport token | ✅ JWT，帳密驗證邏輯一致 | **DONE** |
-| | logout | 無中介層保護(500 bug) | 已掛 `authenticate` 中介層(修正)，但 501 stub 無失效邏輯 | PARTIAL |
+| | logout | 無中介層保護(500 bug) | ✅ 已修正保護 + 已實作 stateless logout(方案 A，見 §10.9/§10.13) | **DONE(stateless)** |
 | | Passport → JWT | oauth_access_tokens 表 | JWT，無狀態、免資料庫 token 儲存 | 設計已確定，符合 AUTH_REIMPLEMENTATION_REQUIRED |
-| | password hash compatibility | bcrypt | ✅ `AuthService` 用 `bcryptjs` 比對現有 bcrypt hash,格式驗證更嚴謹 | DONE(僅登入路徑) |
-| | token invalidation | 無(Passport revoke 未使用) | 未實作(logout 是 stub) | NOT_IMPLEMENTED |
-| | auth middleware | 無 route 保護(part of legacy issue) | ✅ `authenticate.ts` 已實作,JWT 驗證完整 | DONE(元件本身),但只掛在 logout |
-| | admin authorization | **完全沒有 is_admin 檢查** | `requireAdmin` middleware 已寫好但**未掛在任何路由**(因為 admin/* 都還沒實作) | 待決策(見 known-legacy-issues #2)+待實作 |
+| | password hash compatibility | bcrypt | ✅ `AuthService` 用 `bcryptjs` 比對/產生 bcrypt hash,格式驗證更嚴謹，register/login 皆已驗證(round-trip test) | **DONE(雙向)** |
+| | token invalidation | 無(Passport revoke 未使用) | ✅ 明確決策：不實作(方案 A)，同一 token 在 logout 後仍有效直到自然過期，已測試驗證此行為 | **DONE(決策為「不做」，非遺漏)** |
+| | auth middleware | 無 route 保護(part of legacy issue) | ✅ `authenticate.ts` 已實作,JWT 驗證完整，現在掛在 logout(唯一需要它的既有路由) | DONE(元件本身) |
+| | admin authorization | **完全沒有 is_admin 檢查** | `requireAdmin` middleware 已寫好但**未掛在任何路由**(因為 admin/* 都還沒實作)；已在 §10.13 正式記錄未來 admin/* 必須 `authenticate → requireAdmin → controller`，不得複製 legacy 的無檢查行為 | 待實作(產品方向已定案，見 §10.13) |
 | **Contact** | create | insert + 無 transaction | ✅ 已實作,且改用 transaction(見 §1.2) | **DONE** |
 | | ContactList nested create | 逐筆 insert,略過無 email 項目 | ✅ 已實作;略過邏輯保留但因 Zod 已要求 email,目前不可觸發(見 §1.2 validation parity 確認結果) | **DONE** |
 | | company search | LIKE 模糊搜尋 | 未實作(`admin/contact/search/search-company`) | NOT_IMPLEMENTED |
@@ -307,8 +336,8 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | `SignUpClassForm.vue` | `GET /contact-quest` | ✅ 已實作(含完整分頁 envelope) | ✅ 可用 |
 | `SignUpClassForm.vue` → `addContactInfo` | `POST /contact` | ✅ 已實作(含 transaction + mail) | ✅ 可用 |
 | `pages/auth.vue` → `AuthApi.login` | `POST /auth/login` | ✅ 已實作 | ✅ 可用 |
-| `api/auth.ts` → `AuthApi.register`(**未被任何頁面呼叫**) | `POST /auth/register` | 501 stub | 目前無影響(UI 沒有註冊頁面/表單) |
-| (無呼叫) | `POST /auth/logout` | 501 stub(但已受保護) | 目前無影響(前端完全沒有登出功能) |
+| `api/auth.ts` → `AuthApi.register`(**未被任何頁面呼叫**) | `POST /auth/register` | ✅ 已實作 | Backend 已可用，但前端仍是死碼(無 UI)且呼叫本身有既有 bug(`$http` 沒把 `data` 傳進去，見 4.3)——等未來真的要做註冊 UI 才需要一併修正 |
+| (無呼叫) | `POST /auth/logout` | ✅ 已實作(stateless) | Backend 已可用，但前端完全沒有登出 UI/呼叫路徑(見 §10.13)，目前無法透過前端觸發 |
 | `pages/admin/contact/index.vue` 等 → `getContact` | `GET /admin/contact` | 無 | ❌ 阻斷 |
 | `pages/admin/contact/[id].vue` → `getSingleContact` | `GET /admin/contact/{id}` | 無 | ❌ 阻斷 |
 | `updateContactInfo` | `PUT /admin/contact`（**缺少 `{id}`**） | 無 | ❌ 阻斷 + **request/response 格式不一致**(見 5.1) |
@@ -388,6 +417,8 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | Logout 保護 | 無中介層,未帶 token 會 500(已知問題 #3) | **已修正**——`authenticate` 中介層已掛在 logout 路由,未帶 token 正確回 401 | Node 已是改善版行為,無需額外處理 |
 | 密碼雜湊 | bcrypt | bcrypt(`bcryptjs`),且比對前多一層 hash 格式驗證 | Node 更嚴謹 |
 | JWT secret 管理 | Passport 用 OAuth client secret(資料庫存) | `.env` 的 `JWT_SECRET`,Zod 強制 ≥16 字元 | 設計改善,但**部署時必須確保 production `JWT_SECRET` 是高強度隨機值，不能沿用 `.env.example` 的 placeholder** |
+| JWT 過期時間 | Passport token 理論上可被 revoke(資料庫存,但實際可靠性未經驗證,見 §10.2) | ✅ **已修正**——`JWT_EXPIRES_IN` 從自由字串改為固定 allowlist(`1d`/`7d`/`14d`/`30d`,預設/上限 `30d`),不可能設成事實上永久,啟動階段 fail fast | Node 已封閉「永久 JWT + 無 revoke」的風險組合(§10.5 分析的直接呼應);**但 logout 本身仍是 stateless,token 在 30 天上限內自然過期前技術上仍有效,這是刻意的 trade-off,不是缺陷** |
+| Token 撤銷/revocation | Passport 支援 revoke(可靠性未經驗證) | 明確決策不實作(方案 A) | 若未來需要「立即撤銷」,升級路徑是 `users.token_version`(方案 C,見 §10.9),非本階段範圍 |
 | CORS | 未知(規格文件未記錄舊 Laravel CORS 設定) | 預設 `CORS_ALLOWED_ORIGINS=''`(全擋)，機制良好但**尚未設定正式 origin** | 上線前必須設定,否則前端會被 CORS 擋下 |
 | Email 收件人 | 硬編碼在程式碼 | ✅ 已改為 `RECIPIENT_EMAIL` 環境變數(修正已知問題 #11) | 已改善,**部署時務必在 Zeabur 設定真實值,`.env.example` 只是 placeholder** |
 | SMTP 憑證 | 不適用(舊系統無此概念) | `MAIL_USERNAME`/`MAIL_PASSWORD` 走環境變數,錯誤 log 只記 `error.name`,不含原始 error 物件或密碼 | 新增面,已依「不得 hardcode / log 不含 secret」要求實作 |
@@ -400,9 +431,9 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 
 | 測試類型 | 現況 |
 |---|---|
-| Unit tests | `auth.service.test.ts`(5)、`legacy-validation-error.test.ts`(2)、`laravel-pagination.test.ts`(5，新增) |
-| Integration tests | `auth-login.test.ts`(13)、`seo.test.ts`(5)、`faq.test.ts`(4)、`contact-class.test.ts`(5)、`contact-quest.test.ts`(9)、`contact.test.ts`(14，新增)+ 基礎設施類測試(`env`/`error-handler`/`graceful-shutdown`/`health`/`not-found`/`ready`/`validate-request`，共 14 支) |
-| **完全缺少測試的 API** | **13 / 19 支**（全部 9 支 `admin/*` + `register`/`logout` 兩支 stub，原本 14 支，本階段減少 1 支） |
+| Unit tests | `auth.service.test.ts`(10，含新增 register()/30d exp 測試)、`legacy-validation-error.test.ts`(2)、`laravel-pagination.test.ts`(5) |
+| Integration tests | `auth-login.test.ts`(13)、`auth-register.test.ts`(11，新增)、`auth-logout.test.ts`(6，新增)、`seo.test.ts`(5)、`faq.test.ts`(4)、`contact-class.test.ts`(5)、`contact-quest.test.ts`(9)、`contact.test.ts`(14)+ 基礎設施類測試(`env`(23，含新增 JWT_EXPIRES_IN allowlist 測試)/`error-handler`/`graceful-shutdown`/`health`/`not-found`/`ready`/`validate-request`) |
+| **完全缺少測試的 API** | **11 / 19 支**（全部 9 支 `admin/*` — `register`/`logout` 本階段補上測試，原本 13 支） |
 | Migration parity tests | 無——`backend/scripts/verify-schema.ts` 存在但只驗證 schema 結構,不是「舊資料庫資料 vs 新程式行為」的 parity test |
 | Frontend/backend contract tests | 無——目前沒有任何跨 repo 的 contract test(例如用 `openapi.yaml` 對前端呼叫做 schema 驗證) |
 
@@ -418,9 +449,10 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 2. ~~**`GET /api/v2/faq`**~~ —— **已於第三階段完成**(API 行為),cache 仍待補
 3. ~~**`GET /api/v2/contact-class`** + **`GET /api/v2/contact-quest`**~~ —— **已於第三階段完成**
 4. ~~**`POST /api/v2/contact`**~~ —— **已於第四階段完成**(API/DB transaction/同步 Mail),Queue 仍待補(deferred)
-5. **`POST /api/v2/auth/register`** —— **下一批建議項目**。路由與驗證已存在,只差 controller 的 bcrypt + insert 邏輯,補完即可
-6. **`POST /api/v2/auth/logout`** —— 同上,路由與保護已存在,只差 token 失效邏輯(JWT 是無狀態的,若要做到真正「失效」需要額外的 blocklist 機制,需先決定要不要做,或先做成「僅前端清除 token」的簡化版)
-7. **`GET/DELETE /api/v2/admin/contact`** + **`GET /api/v2/admin/contact/{id}`** + **`GET /api/v2/admin/contact/search/search-company`** —— 後台核心讀取/刪除功能,先做這些(邏輯明確、無疑點)
+5. ~~**`POST /api/v2/auth/register`**~~ —— **已於第五階段完成**
+6. ~~**`POST /api/v2/auth/logout`**~~ —— **已於第五階段完成**(方案 A，stateless)；frontend 尚未跟進(登出 UI、localStorage 清除、401 導頁)，屬於獨立的 frontend 任務(見 §10.13)
+6.5 **`admin/*` 開始實作前的建議前置工作**——**下一批建議項目**。既然 auth API 已完整，下一步應是 frontend auth improvement(login 持久化驗證、logout UI、401 自動清 token、`/admin/*` route guard，見 §10.13 清單)，讓後台管理實作出來後真的能被使用；純 API 角度也可以直接開始下列 admin 端點。
+7. **`GET/DELETE /api/v2/admin/contact`** + **`GET /api/v2/admin/contact/{id}`** + **`GET /api/v2/admin/contact/search/search-company`** —— 後台核心讀取/刪除功能,先做這些(邏輯明確、無疑點);實作時記得掛 `authenticate → requireAdmin`(見 §10.13 決策)
 8. **`admin/contact-class` 全部 4 支** —— 邏輯明確,可與上一批一起做
 9. **`PUT /api/v2/admin/contact/{id}`** —— **排在最後**，因為必須先等需求方針對 known-legacy-issues.md #1 做出決策,且前端呼叫本身也有 bug(缺少 `{id}`)需要同步修正
 10. **`admin/contact-list` 2 支** —— 前端目前未使用,優先度最低,可視情況併入 API 完整度需求再做
@@ -440,26 +472,197 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 
 | # | 條件 | 目前狀態 |
 |---|---|---|
-| 1 | frontend 使用中的 API 全部 DONE | ⚠️ 進行中：10/19 前端使用中的端點仍是 NOT_IMPLEMENTED(原 11，本階段完成 `POST /contact`) |
-| 2 | auth flow 完整(login/register/logout 皆可用) | ❌ 僅 login DONE,register/logout 為 501 stub |
-| 3 | admin authorization 確認 | ❌ 待需求方決策(known-legacy-issues #2)+ 待實作 |
-| 4 | database schema compatible | ✅ 已完成(`backend/migrations/` 與 database-schema.md 一致) |
+| 1 | frontend 使用中的 API 全部 DONE | ⚠️ 進行中：10/19 前端使用中的端點仍是 NOT_IMPLEMENTED(全部是 `admin/*`；`register`/`logout` 的 backend 已 DONE，但前端本來就沒有呼叫它們，見下方第 2 項的說明) |
+| 2 | auth flow 完整(login/register/logout 皆可用) | ⚠️ **backend API 本身 DONE**(login/register/logout 三支都完整實作+測試)，**但 auth flow 整體仍不算 production-ready**——frontend 完全沒跟上：無登出 UI、`AuthApi.register` 是死碼、Authorization header 非動態讀取、401 不會清 token/導頁、`/admin/*` 無 route guard(完整清單見 §10.13)。**這是本階段任務明確要求不要虛報的項目。** |
+| 3 | admin authorization 確認 | ⚠️ 產品決策已在 §10.13 正式記錄(未來 admin/* 必須 `authenticate → requireAdmin`)，但**尚未實作**(admin/* 整批都還沒開始) |
+| 4 | database schema compatible | ✅ 已完成(`backend/migrations/` 與 database-schema.md 一致，本階段也未修改 schema) |
 | 5 | mail confirmed | ⚠️ 進行中：`POST /contact` 的同步 Mail 已 DONE,但原始模板內容/排版是重建品非逐字複製(已知缺口，見 §1.2);其餘尚無其他端點需要 mail |
 | 6 | queue confirmed | ❌ 刻意 deferred(本階段任務範圍明確排除,`POST /contact` 用同步寄信) |
 | 7 | cache confirmed | ❌ FAQ 24hr cache 仍未實作(API 行為本身已 DONE) |
 | 8 | CORS confirmed | ⚠️ 機制已就緒,但正式 origin 尚未設定 |
-| 9 | backend tests passed | ✅ 79/79 全數通過(本階段從 65 增加到 79),覆蓋率提升到 6/19 端點 |
-| 10 | frontend build passed | ✅ `npm run build` 通過(與 API 是否可用無關,純建置檢查) |
+| 9 | backend tests passed | ✅ 120/120 全數通過(本階段從 79 增加到 120),覆蓋率提升到 8/19 端點 |
+| 10 | frontend build passed | ✅ `npm run build` 通過(與 API 是否可用無關,純建置檢查；本階段未修改 frontend) |
 | 11 | staging integration test passed | ❌ 尚未進行(backend 功能仍不足,無法有意義地跑 staging 測試) |
 
-**目前 11 項中 3 項達成、2 項進行中(schema/build/測試綠燈已達成，frontend API 覆蓋率從 42% 提升到 47%，mail 基礎行為已可用但模板內容有已知缺口)，其餘 6 項仍未達成。距離可以考慮 cutover 仍早期，核心阻礙是整個 `admin/*`(9/19 端點,47%)尚未開始實作，以及 auth register/logout 兩支 stub。**
+**目前 11 項中 3 項達成、4 項進行中(schema/build/測試綠燈已達成；auth API/admin 授權決策/mail 皆有進展但帶明確保留)，其餘 4 項仍未達成。距離可以考慮 cutover 仍早期，核心阻礙是整個 `admin/*`(9/19 端點,47%)尚未開始實作，以及 frontend 完全沒有跟上這批 auth API 的變化(見 §10.13 的 frontend 待辦清單)。**
+
+---
+
+## 10. Auth Migration Decision — Register / Logout（分析階段，2026-08-26，未實作）
+
+> **本節僅為分析與決策記錄，對應 `docs/Node Auth parity.md` 的第一階段要求。**
+> **本節產出時未修改任何程式碼，`register`/`logout` 狀態維持 §1 總覽表中的 PARTIAL（501 stub）不變。**
+
+### 10.1 舊 Laravel register 行為
+
+| 項目 | 內容 |
+|---|---|
+| Request validation | `name`(必填)、`email`(必填、格式、`users.email` 唯一)、`password`(必填、≥6 字元、需搭配 `password_confirmation` 相同)、`password_confirmation`(必填)、`is_admin`(選填 boolean) |
+| Password hashing | bcrypt |
+| Duplicate email | 屬於 FormRequest 驗證規則的一部分 → `400 {status:"error", message}`，不是獨立的 409 |
+| DB 寫入欄位 | `users.name`/`email`/`password`(雜湊後)；`is_admin` 僅在有提供時寫入，否則吃 DB default `0` |
+| Response status | 成功 `201`；驗證失敗 `400` |
+| Response body | 成功僅 `{"message":"註冊成功"}`，**不含使用者資料或 token** |
+| 是否直接產生 access token | **否**，需另外呼叫 `/auth/login` |
+| Side effect | 無（單一 insert，不需要 transaction） |
+
+### 10.2 舊 Laravel logout 行為
+
+`known-legacy-issues.md` #3：路由沒有掛認證中介層，處理邏輯內部假設一定有已登入使用者，未帶有效憑證時對 `null` 呼叫方法直接拋例外 → **500**（而非乾淨的 401）。規格文件明確標示這是「不要照抄」的已知問題；新專案應該用中介層明確要求認證並回 401。
+
+### 10.3 Node login 現況（已實作，供 register/logout 對齊參考）
+
+| 項目 | 內容 |
+|---|---|
+| JWT payload | `{ sub: number, email: string, isAdmin: boolean }` |
+| expiresIn | 讀自 `JWT_EXPIRES_IN` env var；**Zod schema 目前只驗證非空字串，無上限、無格式檢查**（見 §10.5） |
+| Authentication middleware | `authenticate.ts` 已完整實作（驗證 JWT、掛 `req.user`），是通用元件；目前只掛在 `logout` 路由 |
+| User lookup | `UserRepository.findByEmail`，`SELECT id,email,password,is_admin FROM users WHERE email=?` |
+| Password compatibility | ✅ 已確認相容——`isSupportedBcryptHash` 正則 `/^\$2[aby]\$\d{2}\$/` 同時涵蓋 PHP `password_hash()` 預設的 `$2y$` 前綴與 bcryptjs 的 `$2a$/$2b$`，bcrypt 是跨語言標準格式 |
+| Response contract | `200 {token}` / `401 {message:"帳號或密碼錯誤"}` |
+
+`register` 路由已掛 `validateRequest(registerRequestSchema)`，**但沒有設定 `formRequestErrorFormat: true`**——若現在直接移除 stub，驗證失敗會回錯的 envelope（目前程式碼的一般 400 格式，不是規格要求的 `{status:"error",message}`）。這是本次分析發現的既有缺口，已列入 §10.10 register implementation plan。
+
+### 10.4 Frontend auth flow
+
+搜尋全部 `login`/`logout`/`register`/`Authorization`/token storage/401 handling：
+
+- **Login**：`pages/auth.vue` → `AuthApi.login`(`api/auth.ts`) → `POST /auth/login` → 成功寫入 `localStorage.setItem('token', ...)` → `router.push('/admin/contact')`
+- **Register**：`AuthApi.register` 存在於 `api/auth.ts`，但**沒有任何頁面呼叫它**——`pages/auth.vue` 只有登入表單，沒有註冊 UI，屬於死碼
+- **Logout**：**完全不存在**——全 repo 搜尋 `logout`/`Logout`/`removeToken` 沒有任何命中；`useAuthStore.setToken(null)` 這個清除函式已存在但從未被呼叫
+- **Token storage**：`localStorage`，經 `useAuthStore` 的 `token` computed 讀取
+- **Authorization header**：`utils/http.ts` 在 **axios instance 建立時算一次**(`'Bearer ' + token.value`)，不是每次請求動態讀取——登入後同一頁面內的後續請求標頭不會自動更新（既有前端限制，本階段不修改，只回報）
+- **401 handling**：`isResponseOK` 統一攔截，`401 → alert('請先登入')`，**沒有自動清除 token 或導回登入頁**
+- **`/admin/*` 路由守衛**：**不存在**——沒有任何 middleware/`definePageMeta` 在進入前檢查 token，頁面殼會直接渲染，只有頁面內部的 API 呼叫會因未帶有效 token 而 401
+
+```
+登入:   pages/auth.vue → AuthApi.login → POST /auth/login（✅ DONE）
+        → localStorage.setItem('token') → router.push('/admin/contact')
+登出:   （不存在）—— 無 UI、無呼叫路徑
+註冊:   AuthApi.register 已定義但 0 個呼叫點（死碼）
+後續請求: Authorization header 於 axios instance 建立時讀一次，非每請求動態讀取
+401:    isResponseOK → alert('請先登入')，不清除 token、不導頁
+/admin/* 路由守衛: 不存在，純靠 API 401 擋
+```
+
+### 10.5 JWT 過期策略 + 「永久 JWT」風險分析
+
+**目前實際策略**：`.env.example` 預設 `JWT_EXPIRES_IN=1d`；`env.ts` 的 Zod schema 是 `z.string().default('1d')`——**只驗證非空字串，沒有上限或格式檢查**。
+
+- 空字串會通過 Zod 驗證，但在 `jwt.sign()` 時會因 `expiresIn` 格式不合法而丟出例外 → 500（安全的失敗模式）
+- 但**操作者可以合法設定成 `"10y"`、`"36500d"` 這類事實上永久的值**，Zod 完全不會擋下來
+- `logout` 目前是 501 stub，尚未有任何 server-side 撤銷機制
+
+**結論**：若 `JWT_EXPIRES_IN` 未來被設成事實上永久，且 logout 只做純 stateless（方案 A），則「登出」在事實上完全不生效——已登出裝置的 token 若外洩，永遠可被重放。**這個組合不得視為 production-safe**，除非同時滿足：(a) `JWT_EXPIRES_IN` 被限制在合理範圍內，(b) 團隊接受「token 自然過期前這段時間內無法強制登出」是可接受風險。
+
+### 10.6 Register 確認事項
+
+- Laravel bcrypt ↔ Node bcrypt：✅ 相容
+- Node 新建 hash ↔ 既有 users table：✅ 相容——bcryptjs 產生的 hash 是標準 bcrypt 格式，寫回同一個 `VARCHAR(255) users.password`，即使舊 Laravel 系統還在跑也能互相驗證
+- Duplicate email error 是否符合 frontend：**無法判斷**——`AuthApi.register` 是死碼，`isResponseOK` 沒有為 register 客製任何 alert（連 `addContactInfo` 的 `alert(err.data.message)` 都沒有）
+- Register 是否應直接 login：**否**，規格明確記載只回 `{message:"註冊成功"}`；目前也沒有前端 UI 依賴任一種行為，維持規格原樣風險最低
+
+### 10.7 Admin 未來沿用性確認
+
+`authenticate.ts`（JWT 驗證 + 掛 `req.user`）與 `requireAdmin`(檢查 `req.user.isAdmin`) **都已經是通用元件**，未來實作 `admin/*` 時可以**直接沿用，不需要修改這兩個 middleware**。唯一要決定的是「是否要真的掛 `requireAdmin`」這個產品決策（對齊 known-legacy-issues.md #2：舊系統完全沒檢查 `is_admin`，只要登入就能呼叫全部 admin 端點）。
+
+### 10.8 Logout 四方案比較
+
+| 方案 | 新增基礎設施 | Schema 改動 | 每次請求成本 | 複雜度 | 適合本專案？ |
+|---|---|---|---|---|---|
+| **A. 純 stateless** | 無 | 無 | 0（現有 `authenticate` 已是純 stateless 驗證） | 最低 | ✅ 是，前提是 `JWT_EXPIRES_IN` 被限制在合理範圍 |
+| **B. JWT denylist** | Redis（目前完全沒有，`docker-compose.yml` 只有 `mysql`）或退而求其次用 MySQL 新表 + 清理機制 | 需要新表（若不用 Redis） | +1 次查詢/請求 | 中 | 目前規模不必要，且會引入新基礎設施 |
+| **C. token version** | 無 | `users` 新增 1 個欄位(`token_version`) | +1 次查詢/請求(目前 `authenticate` 完全不碰 DB，這會改變其效能特性) | 中低 | 未來若真的需要「立即強制登出」才值得升級 |
+| **D. refresh token** | 需要新表 + rotation 邏輯 + 新端點 | 較大改動 | 較高 | 最高 | **過度設計**，不建議 |
+
+### 10.9 推薦方案
+
+**現在採用方案 A（純 stateless），且把限制 `JWT_EXPIRES_IN` 上限當成方案 A 能成立的必要條件，而不是可選項。**
+
+理由：(1) 目前規模是內部小型後台（課程報名/聯絡資料管理），非需要即時強制登出的高風險系統；(2) Laravel Passport 的可撤銷語意本就標記為 `AUTH_REIMPLEMENTATION_REQUIRED`，新專案不需要相容；(3) 零新增基礎設施、零 schema 改動、`authenticate` middleware 完全不用改；(4) `authenticate` 已確保跑到 handler 時一定有合法 token，handler 只需回 `200 {message:"登出成功"}`。
+
+**必要前提（非加分項）**：限制 `JWT_EXPIRES_IN` 上限（建議在 Zod schema 加格式/範圍驗證），並重新評估預設值是否要低於現在的 `1d`。
+
+**未來升級路徑（現在不做，只記錄決策）**：若業務日後需要「立即撤銷特定使用者權限」（離職員工、帳號外洩），下一步是方案 C(`users.token_version`)，因為只需要對既有 `users` 表加一個欄位，不需要新基礎設施；不建議跳到方案 B 或 D。
+
+**DB schema 是否需要修改**：Register 不需要；Logout(方案 A) 不需要（未來升級到方案 C 才需要新增 `users.token_version`）。
+**Redis 是否需要**：不需要（方案 A 完全不需要，即使未來做方案 B 也可以先用 MySQL 新表代替）。
+
+### 10.10 Register implementation plan
+
+1. `auth.routes.ts` 的 `/register` 路由補上 `formRequestErrorFormat: true`（修正本次發現的缺口）
+2. Email 唯一性：讓 DB 的 `users_email_unique` 索引接住重複 insert，捕捉唯一鍵衝突後轉成 `FormRequestValidationError('email 已被使用')`（比預先 SELECT 檢查更 race-safe；確切中文文案 Laravel 原文未保留於 migration-spec，屬於與 `POST /contact` 相同性質的已知缺口）
+3. 密碼雜湊改用 `BCRYPT_SALT_ROUNDS`（env 已定義但目前整個 `src/` 沒有任何地方讀取，需要在此接上）
+4. `UserRepository` 新增 `createUser` 方法（insert `name`/`email`/雜湊後 `password`/`is_admin`?? 讓 DB default 生效）
+5. 回應 `201 {message:"註冊成功"}`，不回 token、不自動登入
+6. 沿用既有 `modules/auth/` 目錄，不需要新模組
+7. 建議測試：成功註冊、重複 email、密碼與確認密碼不符、缺欄位、`is_admin` 選填、新 hash 可被既有 login 流程驗證（往返測試）
+
+### 10.11 Logout implementation plan（方案 A）
+
+1. `auth.controller.ts::logout` 從 `throw NotImplementedError` 改成：因 `authenticate` middleware 已確保跑到這裡一定有合法 `req.user`，直接回 `200 {message:"登出成功"}`，不做任何 DB 寫入
+2. 不需要新的 repository/service 方法
+3. **同批次強烈建議附帶**：為 `JWT_EXPIRES_IN` 加上範圍驗證，重新評估預設值是否要低於現在的 `1d`——這是讓方案 A 成立的必要條件，不是額外加分
+4. 建議測試：合法 token → 200；缺 token/無效 token/過期 token → 401；確認 response shape
+
+### 10.12 Security risks
+
+- **最主要風險**：`JWT_EXPIRES_IN` 目前沒有上限驗證，若被誤設成事實上永久，搭配純 stateless logout，已登出/外洩的 token 會永遠有效——**必須靠限制過期時間上限來封閉，不是靠 logout 端點本身**
+- **權限降級延遲風險**：`isAdmin` 在登入當下寫進 JWT payload，之後若在 DB 把某帳號的 `is_admin` 改回 0，該帳號手上「舊」的 token 在自然過期前仍持有 admin 權限——與上一點共用同一個解法（縮短過期時間）
+- `admin/*` 一旦開始實作，`requireAdmin` 存在但目前完全沒有路由使用——必須主動決定要不要掛，否則會用「忘記掛」的方式意外複製舊系統的已知問題（known-legacy-issues.md #2）
+- `BCRYPT_SALT_ROUNDS` 目前定義了但整個 `src/` 沒有任何地方讀取——等 register 實作時才會生效，需同時確認正式環境(Zeabur)有設定合理值(不是測試用的 `4`)
+- 前端沒有 `/admin/*` 路由守衛、Authorization header 非每請求動態讀取、401 不會自動清 token/導頁——這些是既有前端限制，不是後端安全漏洞（資料仍由後端 API 授權把關），但會讓使用者對登入狀態的認知與實際狀態產生落差，建議未來作為獨立的 frontend 任務處理
+
+### 10.13 實作結果（第五階段，2026-08-26）——`register`/`logout` 已完成
+
+> §10.1–§10.12 是分析階段的紀錄，保留原樣供追溯；以下記錄實際採用的決策與實作結果。
+
+**JWT_EXPIRES_IN 最終決策**：
+
+- 允許值：`1d`、`7d`、`14d`、`30d`（固定 allowlist，見 `src/config/env.ts`）
+- 預設值：`30d`
+- 上限：`30d`
+- 不接受任何其他 `jsonwebtoken`/`ms` 可解析字串（含空字串、`1h`~`12h`、`31d`/`60d`/`90d`/`365d`/`10y`/`"forever"`/`"never"` 等），一律在**應用程式啟動階段** fail fast（`server.ts::main()` 開頭無保護呼叫 `getEnv()`），不是等第一次 login 才 500
+
+**產品決策（登入持久性）**：使用者登入後，Frontend 將 JWT 持久化於 `localStorage`。只要滿足以下三個條件，就應該維持登入狀態：
+
+1. JWT 尚未過期
+2. 使用者沒有主動登出
+3. `localStorage` 沒有被清除（例如未使用無痕模式、未手動清瀏覽器資料）
+
+關閉瀏覽器、重新開啟瀏覽器、重新整理頁面，都**不**應該因此自動登出。JWT 最長 `30` 天後，無論是否操作過，都必須重新登入——沒有永久 JWT，也沒有 refresh token 靜默延長這個上限。**這個決策目前只有 backend 端(`JWT_EXPIRES_IN=30d`)已經到位；frontend 目前完全沒有把 token 存進 `localStorage` 之外的任何持久化/生命週期管理邏輯**（見下方 frontend 待辦清單）。
+
+**Admin 授權決策（正式記錄）**：未來所有 `/api/v2/admin/*` endpoint 實作時，路由鏈必須是：
+
+```
+authenticate → requireAdmin → controller
+```
+
+**不得**複製 Laravel 舊系統「只要登入即可操作任何 admin API」的 known-legacy-issue #2。`authenticate`/`requireAdmin` 兩個 middleware 都已經是可直接掛用的既有元件，不需要修改。
+
+**Register 實作結果**：`bcrypt`(`BCRYPT_SALT_ROUNDS` 已接上) + `INSERT INTO users`；`is_admin` 未提供時不寫入該欄位，讓 DB `DEFAULT 0` 生效；重複 email 透過辨識 `users_email_unique` constraint 名稱轉成 `400 {status:"error", message:"email 已被使用"}`(不是猜測任意 `ER_DUP_ENTRY` 訊息字串)；成功回應維持 `201 {message:"註冊成功"}`,不回 token、不自動登入,與 legacy contract 完全一致。
+
+**Logout 實作結果**：純 stateless(方案 A)。`authenticate` middleware 已保證跑到 handler 時 token 合法,handler 直接回 `200 {message:"登出成功"}`,無 DB 寫入、無 blacklist、無 Redis、無 schema 改動。**明確的、已測試驗證的 trade-off**：同一顆未過期的 JWT 在呼叫 logout 之後，對 `authenticate` 仍然有效，直到自然過期(最長 30 天)或使用者所在裝置上的 `localStorage` 被清除。
+
+**⚠️ 不算完整 production-ready 的原因**：backend 這三支 API 全部完成、全部測試通過，但**auth flow 作為一個整體體驗，仍未 production-ready**，因為 frontend 完全沒有跟進。以下是下一個獨立 frontend 任務需要達成的清單（本階段明確排除，未修改任何 frontend 檔案）：
+
+- [ ] login 成功後，JWT 存入 `localStorage`（目前已經有做，維持現況）
+- [ ] 重新整理頁面後仍能從 `localStorage` 取得 token 並視為已登入
+- [ ] 關閉並重新開啟瀏覽器後，只要 token 未過期，仍保持登入狀態
+- [ ] `axios`/`utils/http.ts` 改成**每次 request 動態讀取** `localStorage` 的 token,而不是在 instance 建立時只讀一次（見 §10.4 已記錄的既有限制）
+- [ ] 新增登出 UI(按鈕/選單項目),呼叫 `POST /auth/logout`，並清除 `localStorage` 的 token
+- [ ] API 回傳 `401` 時，自動清除失效的 `localStorage` token 並導回 `/auth`(目前只有 `alert('請先登入')`,不會清 token 或導頁)
+- [ ] `/admin/*` 加上 frontend route guard(目前頁面殼會直接渲染,不檢查 token)
+
+以上皆不屬於本階段(`docs/Node Auth parity.md` 第二階段實作)的工作範圍。
 
 ---
 
 ## 附錄：資料來源
 
-- `specs/shared/api-contracts/api-specification.md`、`api-business-logic.md`、`openapi.yaml`
+- `specs/shared/api-contracts/api-specification.md`、`api-business-logic.md`、`openapi.yaml`、`auth-login.md`
 - `specs/backend/migration-history/known-legacy-issues.md`、`database-schema.md`
 - `backend/src/`（全部 routes/modules/middleware/infrastructure）
 - `backend/tests/`（全部 unit/integration）
+- `backend/docker-compose.yml`（確認無 Redis service）
 - `frontend/api/`、`frontend/store/`、`frontend/pages/`、`frontend/components/`、`frontend/layouts/`、`frontend/utils/http.ts`
