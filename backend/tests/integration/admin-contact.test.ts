@@ -62,11 +62,62 @@ function mockPagedContactPool(total: number, pageRows: unknown[]) {
   return { pool: createMockPool({ query: queryFn }), queryFn };
 }
 
+interface MockConnection {
+  query: ReturnType<typeof vi.fn>;
+  beginTransaction: ReturnType<typeof vi.fn>;
+  commit: ReturnType<typeof vi.fn>;
+  rollback: ReturnType<typeof vi.fn>;
+  release: ReturnType<typeof vi.fn>;
+}
+
+/**
+ * `deleteByIds` runs SELECT id FROM contact WHERE id IN (...) followed
+ * (only if nothing is missing) by DELETE FROM contact WHERE id IN (...),
+ * both inside one transaction. `existingIds` drives what the existence
+ * check reports as present.
+ */
+function mockDeleteConnection(existingIds: number[]): MockConnection {
+  const query = vi.fn().mockImplementation((sql: string) => {
+    if (sql.startsWith('SELECT id FROM contact WHERE id IN')) {
+      return Promise.resolve([existingIds.map((id) => ({ id })), []]);
+    }
+    if (sql.startsWith('DELETE FROM contact WHERE id IN')) {
+      return Promise.resolve([{ affectedRows: existingIds.length }, []]);
+    }
+    throw new Error(`unexpected query in test: ${sql}`);
+  });
+  return {
+    query,
+    beginTransaction: vi.fn().mockResolvedValue(undefined),
+    commit: vi.fn().mockResolvedValue(undefined),
+    rollback: vi.fn().mockResolvedValue(undefined),
+    release: vi.fn(),
+  };
+}
+
+function poolWithConnection(connection: MockConnection) {
+  return createMockPool({ getConnection: vi.fn().mockResolvedValue(connection) });
+}
+
+function connectionQueryCallsMatching(connection: MockConnection, predicate: (sql: string) => boolean): QueryCall[] {
+  const calls = connection.query.mock.calls as QueryCall[];
+  return calls.filter(([sql]) => predicate(sql));
+}
+
+function findConnectionQueryCall(connection: MockConnection, predicate: (sql: string) => boolean): QueryCall {
+  const call = connectionQueryCallsMatching(connection, predicate)[0];
+  if (!call) {
+    throw new Error('expected a matching query call');
+  }
+  return call;
+}
+
 describe('Admin contact endpoints — authorization', () => {
   it.each([
     ['GET', '/api/v2/admin/contact'],
     ['GET', '/api/v2/admin/contact/1'],
     ['GET', '/api/v2/admin/contact/search/search-company'],
+    ['DELETE', '/api/v2/admin/contact'],
   ])('%s %s returns 401 with no Authorization header', async (method, path) => {
     const { app } = buildTestApp();
 
@@ -79,6 +130,7 @@ describe('Admin contact endpoints — authorization', () => {
     ['GET', '/api/v2/admin/contact'],
     ['GET', '/api/v2/admin/contact/1'],
     ['GET', '/api/v2/admin/contact/search/search-company'],
+    ['DELETE', '/api/v2/admin/contact'],
   ])('%s %s returns 403 for a valid but non-admin token', async (method, path) => {
     const { app } = buildTestApp();
 
@@ -281,5 +333,105 @@ describe('GET /api/v2/admin/contact/search/search-company', () => {
     // The malicious string is passed as a bound parameter, never concatenated into the SQL text.
     expect(pageCall[0]).toBe('SELECT * FROM contact WHERE company LIKE ? LIMIT ? OFFSET ?');
     expect(pageCall[1]?.[0]).toBe("%'; DROP TABLE contact; --%");
+  });
+});
+
+describe('DELETE /api/v2/admin/contact', () => {
+  it('deletes a single id (frontend always sends the array form)', async () => {
+    const connection = mockDeleteConnection([1]);
+    const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+    const res = await request(app)
+      .delete('/api/v2/admin/contact')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ ids: [1] });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ message: '刪除成功' });
+    expect(connection.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes multiple ids in one batch', async () => {
+    const connection = mockDeleteConnection([1, 2, 3]);
+    const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+    const res = await request(app)
+      .delete('/api/v2/admin/contact')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ ids: [1, 2, 3] });
+
+    expect(res.status).toBe(200);
+    const deleteCall = findConnectionQueryCall(connection, (sql) => sql.startsWith('DELETE FROM contact'));
+    expect(deleteCall[1]).toEqual([1, 2, 3]);
+  });
+
+  it('returns 404 listing all missing ids and deletes nothing when any id in the batch does not exist', async () => {
+    const connection = mockDeleteConnection([1]); // only id 1 actually exists
+    const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+    const res = await request(app)
+      .delete('/api/v2/admin/contact')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ ids: [1, 2] });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ message: '以下的 id 不存在: 2' });
+  });
+
+  it('never issues the DELETE query when any id is missing (all-or-nothing)', async () => {
+    const connection = mockDeleteConnection([]); // nothing exists
+    const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+    await request(app)
+      .delete('/api/v2/admin/contact')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ ids: [999] });
+
+    const deleteCalls = connectionQueryCallsMatching(connection, (sql) => sql.startsWith('DELETE FROM contact'));
+    expect(deleteCalls).toHaveLength(0);
+    expect(connection.commit).toHaveBeenCalledTimes(1); // the transaction still commits (nothing to roll back)
+  });
+
+  it('uses the single-id 404 message when a single (non-array) id is sent', async () => {
+    const connection = mockDeleteConnection([]);
+    const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+    const res = await request(app)
+      .delete('/api/v2/admin/contact')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ ids: 5 });
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ message: '找不到 id: 5' });
+  });
+
+  it('never touches contact_list — no cascade delete (known-legacy-issues.md #9, preserved deliberately)', async () => {
+    const connection = mockDeleteConnection([1]);
+    const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+    await request(app)
+      .delete('/api/v2/admin/contact')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ ids: [1] });
+
+    const contactListCalls = connectionQueryCallsMatching(connection, (sql) => sql.includes('contact_list'));
+    expect(contactListCalls).toHaveLength(0);
+  });
+
+  it.each([
+    { ids: [] },
+    { ids: 0 },
+    { ids: -1 },
+    { ids: 'abc' },
+    { ids: ['1', '2'] },
+  ])('rejects an invalid ids payload %j with a 400', async (payload) => {
+    const { app } = buildTestApp();
+
+    const res = await request(app)
+      .delete('/api/v2/admin/contact')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send(payload);
+
+    expect(res.status).toBe(400);
   });
 });

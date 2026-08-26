@@ -7,6 +7,15 @@ interface CountRow extends RowDataPacket {
   total: number;
 }
 
+interface IdRow extends RowDataPacket {
+  id: number;
+}
+
+export interface DeleteByIdsResult {
+  deletedIds: number[];
+  missingIds: number[];
+}
+
 export interface ContactRow extends RowDataPacket {
   id: number;
   class: string;
@@ -156,5 +165,33 @@ export class ContactRepository {
       [`%${company}%`, limit, offset],
     );
     return rows;
+  }
+
+  /**
+   * Mirrors legacy ContactController@destroy: a hard DELETE, and
+   * deliberately does NOT cascade into `contact_list` (known-legacy-issues.md
+   * #9 — the legacy DB has no enforced FK there, and orphaned contact_list
+   * rows are the documented, preserved behavior, not a bug to fix). If any
+   * requested id doesn't exist, nothing is deleted (existence check + delete
+   * wrapped in one transaction — an intentional reliability improvement over
+   * the legacy two-step, non-transactional check-then-delete; the observable
+   * all-or-nothing behavior itself is unchanged).
+   */
+  async deleteByIds(ids: number[]): Promise<DeleteByIdsResult> {
+    return withTransaction(this.pool, async (connection) => {
+      const placeholders = ids.map(() => '?').join(', ');
+      const [existingRows] = await connection.query<IdRow[]>(
+        `SELECT id FROM contact WHERE id IN (${placeholders})`,
+        ids,
+      );
+      const existingIds = new Set(existingRows.map((row) => row.id));
+      const missingIds = ids.filter((id) => !existingIds.has(id));
+      if (missingIds.length > 0) {
+        return { deletedIds: [], missingIds };
+      }
+
+      await connection.query(`DELETE FROM contact WHERE id IN (${placeholders})`, ids);
+      return { deletedIds: ids, missingIds: [] };
+    });
   }
 }

@@ -34,3 +34,23 @@ export function createAdminSearchContactHandler(service: AdminContactService) {
     res.status(200).json(envelope);
   });
 }
+
+export function createAdminDeleteContactHandler(service: AdminContactService) {
+  return asyncHandler(async (req: Request, res: Response) => {
+    const idsInput = (req.body as { ids: number | number[] }).ids;
+    const idsArray = Array.isArray(idsInput) ? idsInput : [idsInput];
+    const result = await service.deleteByIds(idsArray);
+
+    if (result.missingIds.length > 0) {
+      // api-specification.md #12: array mode lists every missing id,
+      // single-value mode names just that one id.
+      const message = Array.isArray(idsInput)
+        ? `以下的 id 不存在: ${result.missingIds.join(', ')}`
+        : `找不到 id: ${result.missingIds[0]}`;
+      res.status(404).json({ message });
+      return;
+    }
+
+    res.status(200).json({ message: '刪除成功' });
+  });
+}

@@ -3,7 +3,7 @@ import {
   type LaravelPaginatedEnvelope,
 } from '../../shared/http/laravel-pagination';
 import type { ContactListRow } from '../contact-list/contact-list.repository';
-import type { ContactRepository, ContactRow } from './contact.repository';
+import type { ContactRepository, ContactRow, DeleteByIdsResult } from './contact.repository';
 
 const PER_PAGE = 10;
 
@@ -55,5 +55,9 @@ export class AdminContactService {
       perPage: PER_PAGE,
       path: params.path,
     });
+  }
+
+  async deleteByIds(ids: number[]): Promise<DeleteByIdsResult> {
+    return this.repository.deleteByIds(ids);
   }
 }
