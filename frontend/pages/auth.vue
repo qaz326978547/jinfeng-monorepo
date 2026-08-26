@@ -25,7 +25,6 @@
 <script setup lang="ts">
 import { AuthApi } from "@/api/auth";
 import { useAuthStore } from "@/store/useAuthStore";
-const router = useRouter();
 
 const loginData = ref({
     email: "",
@@ -40,13 +39,12 @@ const login = async () => {
 
         if (res && res.token) {
             console.log("登入成功，正在導向 /admin/contact");
-            // 確保 token 有設置到 store
+            // localStorage 是唯一的 token persistence 來源，一律經由 setToken() 寫入
             const authStore = useAuthStore();
             authStore.setToken(res.token);
 
-            // 使用 nextTick 確保狀態更新後再導向
-            await nextTick();
-            await router.push("/admin/contact");
+            // 後續 request 由 axios request interceptor 自動從 localStorage 取得剛登入的新 token
+            await navigateTo("/admin/contact");
         } else {
             console.error("登入失敗：沒有收到有效的回應或 token");
             alert("登入失敗，請檢查帳號密碼");

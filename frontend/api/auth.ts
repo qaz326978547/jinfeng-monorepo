@@ -1,7 +1,5 @@
 import { $http, asyncDo, isResponseOK } from '@/utils/http';
-import { useAuthStore } from '@/store/useAuthStore';
 
-const { token } = storeToRefs(useAuthStore());
 export namespace AuthApi {
     /**
      * 註冊
@@ -28,7 +26,7 @@ export namespace AuthApi {
          */
         is_admin?: boolean;
     }) {
-        const [err, result] = await asyncDo($http<any>('post', '/auth/register'));
+        const [err, result] = await asyncDo($http<any>('post', '/auth/register', data));
         if (!isResponseOK(err, result)) {
             return false;
         }
@@ -52,11 +50,24 @@ export namespace AuthApi {
             return null;
         }
         if (!result) return null;
-        if (process.client) {
-            localStorage.setItem('token', result.token);
-        }
-
+        // Token persistence goes through useAuthStore().setToken() at the call site —
+        // localStorage is the single source of truth, written from exactly one place.
         return result;
+    }
+
+    /**
+     * 登出
+     */
+    export async function logout() {
+        // Stateless JWT (specs/backend/laravel-to-node-parity.md §10.9/§10.11): the
+        // server doesn't invalidate anything, so a failed request here (network error,
+        // already-expired token, etc.) must never block the client-side logout — the
+        // caller always clears localStorage itself regardless of this outcome.
+        try {
+            await $http<{ message: string }>('post', '/auth/logout');
+        } catch {
+            // intentionally ignored — see comment above
+        }
     }
 }
 

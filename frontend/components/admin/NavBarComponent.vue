@@ -23,6 +23,9 @@
                 </ul>
             </li>
         </ul>
+        <button type="button" class="mt-4 w-full rounded-md bg-white py-2 text-admin-content" @click="logout">
+            登出
+        </button>
         <button
             @click="toggleModal"
             class="absolute right-[-40px] top-[40%] h-[40px] w-[40px] rounded-full bg-admin-primary text-[30px]"
@@ -34,7 +37,11 @@
 </template>
 
 <script setup lang="ts">
+import { AuthApi } from '@/api/auth';
+import { useAuthStore } from '@/store/useAuthStore';
+
 const showNavBar = ref(false);
+const authStore = useAuthStore();
 
 const emit = defineEmits(['update:showNavBar']);
 
@@ -44,6 +51,18 @@ watchEffect(() => {
 
 const toggleModal = () => {
     showNavBar.value = !showNavBar.value;
+};
+
+const logout = async () => {
+    try {
+        await AuthApi.logout();
+    } finally {
+        // Stateless JWT: the backend request above is best-effort. The real logout is
+        // clearing the local token, and it must happen whether that request succeeded,
+        // failed, or errored out entirely.
+        authStore.setToken(null);
+        await navigateTo('/auth');
+    }
 };
 </script>
 

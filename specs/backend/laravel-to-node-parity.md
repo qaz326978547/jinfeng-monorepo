@@ -13,7 +13,7 @@
 
 **19 支 Laravel API 中，Node 後端目前 16 支完全 DONE + 2 支 DONE 但帶有已標示的非功能性缺口 + 1 支正式 DEFERRED（合計 18/19 ≈ 95% 功能完成；16/19 ≈ 84% 無任何保留的完整 DONE）。**
 
-**⚠️ 這不代表 production-ready**——見下方「功能 endpoint 完成率 vs production parity」的區分，以及 §9 production cutover checklist。所有已排入實作範圍的 admin API 都已完成，但 frontend 端(localStorage 動態讀取、logout UI、401 自動清 token、`/admin/*` route guard)完全未跟進，見 §10.13；FAQ cache 與 Contact Queue 仍是 PARTIAL，兩者都**不計入** production-ready 的判斷。
+**⚠️ 這不代表 production-ready**——見下方「功能 endpoint 完成率 vs production parity」的區分，以及 §9 production cutover checklist。所有已排入實作範圍的 admin API 都已完成；frontend auth UX(localStorage 動態讀取、logout UI、401 自動清 token、`/admin/*` route guard)已於 2026-08-27 完成並跟上，見 §10.14；FAQ cache 與 Contact Queue 仍是 PARTIAL，兩者都**不計入** production-ready 的判斷。
 
 | 狀態 | 數量 | 佔比 | 說明 |
 |---|---|---|---|
@@ -572,7 +572,7 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | # | 條件 | 目前狀態 |
 |---|---|---|
 | 1 | frontend 使用中的 API 全部 DONE | ✅ **達成**——前端目前實際呼叫的每一支端點都已實作(`PUT admin/contact/{id}` 的呼叫端是 0 call site 的死碼，不計入「使用中」，見 §11.1 #11) |
-| 2 | auth flow 完整(login/register/logout 皆可用) | ⚠️ backend API 本身 DONE，**但 auth flow 整體仍不算 production-ready**——frontend 完全沒跟上(完整清單見 §10.13)。**維持上一輪的保留，未因本批而改善或惡化。** |
+| 2 | auth flow 完整(login/register/logout 皆可用) | ✅ **達成**——backend API DONE，frontend auth UX 已於 2026-08-27 跟上：login token persistence、axios 動態 Authorization header、logout UI、401 自動清 token + 導頁、`/admin/*` route guard 皆已實作（見 §10.14）。register 仍無前端 UI，但這是刻意保留的產品決策（見 §10.14），並非缺口——現有 UI 從未依賴 register。**admin frontend authentication UX 一併達成。** |
 | 3 | admin authorization 確認 | ✅ **達成**——所有已實作的 admin 端點(10 支：6 支唯讀 + 4 支寫入)全部套用 `authenticate → requireAdmin`，401/403/200 三層皆有測試覆蓋；唯一未套用的是正式 DEFERRED、根本沒有實作的 `PUT admin/contact/{id}` |
 | 4 | database schema compatible | ✅ 已完成(`backend/migrations/` 與 database-schema.md 一致，本階段也未修改 schema) |
 | 5 | mail confirmed | ⚠️ 進行中：`POST /contact` 的同步 Mail 已 DONE,但原始模板內容/排版是重建品非逐字複製(已知缺口，見 §1.2);其餘尚無其他端點需要 mail |
@@ -583,7 +583,7 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | 10 | frontend build passed | ✅ `npm run build` 通過(與 API 是否可用無關,純建置檢查；本階段未修改 frontend) |
 | 11 | staging integration test passed | ❌ 尚未進行(backend 功能仍不足,無法有意義地跑 staging 測試) |
 
-**目前 11 項中 5 項達成、3 項進行中(schema/build/測試綠燈、frontend API 覆蓋率、admin 授權皆已達成；auth flow/mail/CORS 有進展但帶明確保留)，其餘 3 項仍未達成(queue/cache/staging test)。⚠️ 5/11 達成**不代表 production cutover 已 ready**——`queue confirmed`、`cache confirmed`、`staging integration test passed` 三項完全沒有進展，且第 2 項(auth flow)明確帶有「不算 production-ready」的保留，這是本輪明確要求不能因為 admin authorization 達成就一併虛報的項目。核心剩餘阻礙：FAQ cache、Contact Queue、frontend auth improvements(§10.13)、CORS 正式 origin、production 環境變數驗證、staging test。**
+**目前 11 項中 6 項達成、2 項進行中(schema/build/測試綠燈、frontend API 覆蓋率、admin 授權、auth flow 皆已達成；mail/CORS 有進展但帶明確保留)，其餘 3 項仍未達成(queue/cache/staging test)。⚠️ 6/11 達成**不代表 production cutover 已 ready**——`queue confirmed`、`cache confirmed`、`staging integration test passed` 三項完全沒有進展，這是本輪明確要求不能因為 frontend auth UX 完成就一併虛報的項目。核心剩餘阻礙：FAQ cache、Contact Queue、CORS 正式 origin、production 環境變數驗證、Mail 模板逐字複製、staging test。**
 
 ---
 
@@ -743,17 +743,54 @@ authenticate → requireAdmin → controller
 
 **Logout 實作結果**：純 stateless(方案 A)。`authenticate` middleware 已保證跑到 handler 時 token 合法,handler 直接回 `200 {message:"登出成功"}`,無 DB 寫入、無 blacklist、無 Redis、無 schema 改動。**明確的、已測試驗證的 trade-off**：同一顆未過期的 JWT 在呼叫 logout 之後，對 `authenticate` 仍然有效，直到自然過期(最長 30 天)或使用者所在裝置上的 `localStorage` 被清除。
 
-**⚠️ 不算完整 production-ready 的原因**：backend 這三支 API 全部完成、全部測試通過，但**auth flow 作為一個整體體驗，仍未 production-ready**，因為 frontend 完全沒有跟進。以下是下一個獨立 frontend 任務需要達成的清單（本階段明確排除，未修改任何 frontend 檔案）：
+**⚠️ 不算完整 production-ready 的原因（歷史記錄，寫於本節產出當下）**：backend 這三支 API 全部完成、全部測試通過，但**auth flow 作為一個整體體驗，仍未 production-ready**，因為 frontend 完全沒有跟進。以下是下一個獨立 frontend 任務需要達成的清單（本階段明確排除，未修改任何 frontend 檔案）：
 
-- [ ] login 成功後，JWT 存入 `localStorage`（目前已經有做，維持現況）
-- [ ] 重新整理頁面後仍能從 `localStorage` 取得 token 並視為已登入
-- [ ] 關閉並重新開啟瀏覽器後，只要 token 未過期，仍保持登入狀態
-- [ ] `axios`/`utils/http.ts` 改成**每次 request 動態讀取** `localStorage` 的 token,而不是在 instance 建立時只讀一次（見 §10.4 已記錄的既有限制）
-- [ ] 新增登出 UI(按鈕/選單項目),呼叫 `POST /auth/logout`，並清除 `localStorage` 的 token
-- [ ] API 回傳 `401` 時，自動清除失效的 `localStorage` token 並導回 `/auth`(目前只有 `alert('請先登入')`,不會清 token 或導頁)
-- [ ] `/admin/*` 加上 frontend route guard(目前頁面殼會直接渲染,不檢查 token)
+- [x] login 成功後，JWT 存入 `localStorage`（目前已經有做，維持現況）
+- [x] 重新整理頁面後仍能從 `localStorage` 取得 token 並視為已登入
+- [x] 關閉並重新開啟瀏覽器後，只要 token 未過期，仍保持登入狀態
+- [x] `axios`/`utils/http.ts` 改成**每次 request 動態讀取** `localStorage` 的 token,而不是在 instance 建立時只讀一次（見 §10.4 已記錄的既有限制）
+- [x] 新增登出 UI(按鈕/選單項目),呼叫 `POST /auth/logout`，並清除 `localStorage` 的 token
+- [x] API 回傳 `401` 時，自動清除失效的 `localStorage` token 並導回 `/auth`(目前只有 `alert('請先登入')`,不會清 token 或導頁)
+- [x] `/admin/*` 加上 frontend route guard(目前頁面殼會直接渲染,不檢查 token)
 
-以上皆不屬於本階段(`docs/Node Auth parity.md` 第二階段實作)的工作範圍。
+**以上清單已於 2026-08-27 全數完成，實作結果見 §10.14。** 本節其餘文字（含以上核取方塊）保留原樣供追溯，不代表目前現況。
+
+---
+
+### 10.14 Frontend Auth UX 實作結果（2026-08-27）
+
+> 本節記錄 §10.13 清單的實際實作。**本批只修改 `frontend/`，未修改任何 backend 檔案**——靜態分析過程中沒有發現需要回報的 contract mismatch（唯一已知的既有 mismatch，`updateContactInfo` 呼叫 `PUT admin/contact` 缺少 `{id}`，本來就是 0 call site 的死碼，維持不動，見 §11.1 #11／§4.3）。
+
+**修改/新增檔案**：
+- `frontend/store/useAuthStore.ts`（修改）—— `token` 改為由一個內部 `tokenVersion` ref 驅動的 `computed`（而非直接把 token 存成 `ref`）：`setToken()` 寫入/清除 `localStorage` 後遞增 `tokenVersion`，讓 `token` 重新求值、重新讀取 `localStorage`。維持 `computed`（而非 plain `ref`）是刻意的——Pinia setup store 只會把 `ref`/`reactive` 狀態序列化進 SSR payload 並在 client hydration 時寫回，`computed` 的回傳值不在序列化範圍內；如果 `token` 直接是一個 `ref`，server 端永遠讀不到 `localStorage`（只能是 `null`），client hydration 時就會用這個 `null` 覆蓋掉 client 自己剛從 `localStorage` 讀到的真實 token。
+- `frontend/utils/http.ts`（修改）—— 移除在 axios instance 建立時只讀一次 token 的靜態 header；改用 `ajax.interceptors.request.use()`，每次 request 送出前才讀 `localStorage.getItem('token')`；沒有 token 時完全不帶 `Authorization` header(不會送出 `Bearer null`/`Bearer undefined`/`Bearer `)。`isResponseOK()` 的 401 分支改為呼叫 `handleAuthFailure()`：清除 `localStorage` token、導向 `/auth`；用一個模組層級的旗標避免同時發生的多個 401 重複跳出 `alert`；且明確排除「目前已經在 `/auth` 頁面」的情況（避免把登入頁本身的帳密錯誤 401 誤判成 session 過期，也避免 redirect loop）。
+- `frontend/api/auth.ts`（修改）—— 修正 `register()` 沒有把 `data` 傳給 `$http` 的既有 bug(§10.13/§4.3 已記載的死碼 bug，call site 仍是 0，純粹修正呼叫本身)；`login()` 移除內部直接寫 `localStorage` 的動作(原本與呼叫端 `authStore.setToken()` 是兩個 write path，現在只保留一個)；新增 `logout()`，呼叫 `POST /auth/logout` 並在 `catch` 中吞掉任何錯誤(stateless JWT，backend 請求失敗與否都不能阻擋 client 端登出)。
+- `frontend/pages/auth.vue`（修改）—— 登入成功流程不變(已經是呼叫 `authStore.setToken()`，不是自己寫 `localStorage`)，只把導頁方式從 `router.push()` 改成 `navigateTo()`，並移除不再使用的 `useRouter()`。
+- `frontend/middleware/auth.global.ts`（新增）—— 全域 middleware，只在 `to.path` 以 `/admin` 開頭時生效；`process.server` 時直接放行(SSR 沒有 `localStorage`，交給 client 端重新檢查)；client 端沒有 token 時 `return navigateTo('/auth')`。**明確只做 token 是否存在的檢查，不 decode JWT、不判斷 `isAdmin`**——真正的 authorization 邊界仍在 backend 的 `authenticate → requireAdmin`。
+- `frontend/components/admin/NavBarComponent.vue`（修改）—— 在 admin sidebar(所有 `layout: 'admin'` 頁面共用)新增「登出」按鈕，`try { await AuthApi.logout() } finally { authStore.setToken(null); await navigateTo('/auth') }`。
+
+**Token storage architecture**：`localStorage` 是唯一持久化來源，寫入/清除只透過 `useAuthStore().setToken()` 這一個函式(登入時 `pages/auth.vue` 呼叫、登出時 `NavBarComponent.vue` 呼叫)。Pinia 的 `token` computed 是給元件用的 reactive interface，不是第二個 truth source。`utils/http.ts` 的 axios interceptor 刻意繞過 Pinia store,直接讀 `localStorage`——這樣不管呼叫堆疊上有沒有可靠的 Nuxt/Vue instance context,都能拿到當下最新的 token。
+
+**axios Authorization 改法**：從「建立 instance 時的靜態 header」改成「`interceptors.request.use()` 內每次動態讀取、動態設定/刪除」，這是 §10.13 記載的既有 bug 的直接修正——原本的寫法只在 module 第一次載入時求值一次,登入後拿到的新 token 永遠不會反映到已建立的 header 上。
+
+**SSR safety**：所有存取 `localStorage` 的地方都用既有的 `process.client`(與 `store/useAuthStore.ts`、`api/auth.ts` 既有慣例一致，未改用 `import.meta.client` 以維持風格一致)或 `process.server` 判斷式包住；`middleware/auth.global.ts` 對 `process.server` 直接 return，`utils/http.ts` 的 interceptor 與 `handleAuthFailure()` 都對 `process.client` 判斷式包住才存取 `localStorage`/`window`。已用 `npm run build`(SSR + client 雙 bundle)與 `npm run dev` 起本機伺服器實際 `curl http://localhost:3000/admin/contact`、`curl http://localhost:3000/auth` 驗證,SSR render 完全正常,dev server log 中沒有任何 `ReferenceError`/`localStorage is not defined`。
+
+**Logout UI 位置與行為**：`components/admin/NavBarComponent.vue`(admin sidebar,`layouts/admin.vue` 掛載,所有 `definePageMeta({layout:'admin'})` 頁面共用)。行為：無論 `POST /auth/logout` 成功、失敗、或整個 network request 失敗,`finally` block 保證一定會 `setToken(null)` 清除 `localStorage` 並 `navigateTo('/auth')`——因為 backend 是 stateless JWT(§10.9/§10.11),真正的「登出」本來就是 client 端清掉 token,不是 server 端做了什麼。
+
+**401 handling**：`isResponseOK()` 內的 401 分支從單純 `alert('請先登入')` 改成「清 `localStorage` token → (最多一次)`alert` → `navigateTo('/auth')`」。用模組層級的 `authFailureAlertShown` 旗標防止同時發生的多個 401(例如同一頁面平行送出多支 admin API 請求,token 剛好過期)重複跳出多個 `alert`；並且明確排除「目前已經在 `/auth`」的情況,避免登入頁本身帳密錯誤的 401 被誤判成 session 過期而彈出誤導性訊息或導致 redirect loop。
+
+**Admin route guard**：`middleware/auth.global.ts`,只檢查 `localStorage` 是否有 token,**不 decode JWT、不做 `isAdmin` 判斷**——明確定位為 UX guard,不是 security boundary(真正邊界仍是 backend `authenticate → requireAdmin`,見 §10.13 原始需求文字)。未使用任何新 dependency。
+
+**登入流程**：`pages/auth.vue` 登入成功後呼叫 `authStore.setToken(res.token)`(原本就是這樣做,不是本次新增),再 `navigateTo('/admin/contact')`；後續所有 admin API request 由 `utils/http.ts` 的 axios interceptor 在送出前自動從 `localStorage` 讀取剛寫入的新 token。**可測試性**：`utils/http.ts` 的 interceptor 與 `handleAuthFailure()` 都是可以獨立呼叫、不依賴元件生命週期的純函式/interceptor callback,原則上可被單元測試覆蓋；但 frontend 目前沒有正式 test framework(§10.13/本節任務範圍明確排除導入大型測試框架),因此本階段以 `npm run build` + `npm run dev` 起本機伺服器手動驗證 login → setToken → admin API request → Authorization header 帶新 token 的行為,未寫自動化測試。
+
+**Register dead-code bug**：`AuthApi.register()` 沒有把 `data` 傳給 `$http` 的 bug 已修正(單行、風險低、契約明確)。**register 前端頁面本身依然刻意不存在**——backend `POST /auth/register` 已支援(見 §10.13),但沒有任何 UI 呼叫這個函式,這是本階段明確保留的產品決策,不是遺漏。
+
+**Build / typecheck 結果**：
+- `npm ci`：✅ 成功(1144 packages)
+- `npm run build`：✅ 成功(SSR + client 雙 bundle 皆建置完成,`.output/server/index.mjs` 產出)
+- `npx nuxi typecheck`：❌ **既有 baseline 缺口,非本次修改造成**——frontend `package.json` 從未把 `typescript` 列為 dependency,`npx vue-tsc` 因此連 `typescript/lib/tsc` 都 resolve 不到,直接在 vue-tsc 自己的 module resolution 階段就掛掉,與本次程式碼改動無關。依指示記錄此 baseline failure,不修改 TypeScript 設定。
+
+**Frontend/backend contract compatibility**：`POST /auth/login`、`POST /auth/logout`、`POST /auth/register` 三支呼叫的 path/method/response shape 皆與 `specs/shared/api-contracts/openapi.yaml` 及 backend 現有實作一致,靜態比對未發現新的 contract mismatch,未修改任何 backend 檔案。
 
 ---
 
