@@ -658,6 +658,376 @@ authenticate → requireAdmin → controller
 
 ---
 
+## 11. Admin API Migration Plan（分析階段，2026-08-26，未實作）
+
+> **本節僅為分析與規劃記錄，對應 `docs/Admin API migration planning.md`（或同名任務）的第一階段要求。**
+> **本節產出時未修改任何程式碼、未修改 frontend、未實作任何 admin endpoint、未 commit。**
+> **Authorization 已正式決定（見 §10.13）：所有 `admin/*` 未來實作皆必須 `authenticate → requireAdmin → controller`，不得複製 Laravel「只登入即可操作 admin API」的 known-legacy-issue #2。**
+
+### 11.0 資料來源（本節專用）
+
+除 §附錄 既有來源外，額外重新閱讀：`frontend/pages/admin/contact/index.vue`、`contact_class.vue`、`contact_detail.vue`、`contact_quest.vue`、`[id].vue`、`class/[id].vue`、`class/create_class.vue`，以及 `specs/shared/api-contracts/openapi.yaml` 完整的 9 個 admin path 定義（第 552–840 行）。
+
+### 11.1 逐支 Admin API 15 項屬性矩陣
+
+#### #9 `GET /api/v2/admin/contact`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | GET |
+| 2. Path | `/api/v2/admin/contact` |
+| 3. Laravel controller/action | `Contact\ContactController@index` |
+| 4. Frontend caller | `pages/admin/contact/index.vue::getContactData` → `SignedUpClassInfoApi.getContact({page})` |
+| 5. Request schema | Query `page`（選填，Laravel 慣例預設 1） |
+| 6. Response schema | `PaginatedResponse<Contact>`；與前端 `ContactData` interface 逐欄位一致 |
+| 7. SQL behavior | `SELECT * FROM contact ORDER BY created_at DESC` |
+| 8. Pagination | `paginate(10)`，可直接沿用 `laravel-pagination.ts` |
+| 9. Transaction | 不需要（純讀取） |
+| 10. Side effects | 無 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | 無此支特有問題（共通的 known-legacy-issue #2 見 §11.4） |
+| 14. Frontend mismatch | 無 |
+| 15. Implementation risk | **低** |
+
+**分類：SAFE_TO_MIGRATE**
+
+---
+
+#### #10 `GET /api/v2/admin/contact/{id}`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | GET |
+| 2. Path | `/api/v2/admin/contact/{id}` |
+| 3. Laravel controller/action | `ContactController@show` |
+| 4. Frontend caller | `pages/admin/contact/[id].vue::getContactListData` → `getSingleContact(id)`（**唯讀顯示頁，無編輯表單**） |
+| 5. Request schema | Path `id: integer` |
+| 6. Response schema | `Contact` + 巢狀關聯資料（見下方 ⚠️） |
+| 7. SQL behavior | `SELECT * FROM contact WHERE id=?` + `SELECT * FROM contact_list WHERE cid=?` |
+| 8. Pagination | 不適用 |
+| 9. Transaction | 不需要 |
+| 10. Side effects | 無 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | 無此支特有問題 |
+| 14. Frontend mismatch | **⚠️ 發現一個新的、未在先前分析中記錄的欄位命名衝突（見下方）** |
+| 15. Implementation risk | 低（僅限於下方單一欄位命名決策） |
+
+**⚠️ 新發現的來源衝突 — 巢狀關聯的 key 命名**：
+
+- `openapi.yaml` 的 `Contact` schema：`contactList`（camelCase），註解「Only present when loaded via GET /api/v2/admin/contact/{id} (with('contactList'))」
+- `frontend/api/interface/signedUpClass.ts`：`export interface ContactListData extends Contact { contact_list: ContactList[]; }`（**snake_case**）
+- `pages/admin/contact/[id].vue` 模板實際存取：`contactListData?.contact_list`（snake_case）
+
+**這是兩個文件互相衝突的具體案例**。技術上的合理解釋是：Laravel Eloquent 對關聯（`with('contactList')`，`contactList()` 是 camelCase 的 relation method 名稱）預設 `toArray()`/`toJson()` 序列化行為會把 relation 名稱轉成 **snake_case** 輸出，所以真實 API 回應很可能是 `contact_list`，而 `openapi.yaml` 當初可能誤植成 relation method 名稱本身（`contactList`）。前端型別與模板都是 `contact_list`，這通常代表當初是**對照真實 API 回應**寫的，可信度較高。
+
+**但依照指示「如果這些來源互相衝突，分類為 REQUIRES_PRODUCT_DECISION，不要自行猜測」——本欄位命名本身正式標記為待確認項目，不自行選定。** 這支端點的其餘部分（查詢邏輯、分頁、`Contact` 主體欄位）完全清楚無爭議，只有這一個巢狀 key 的大小寫需要在實作前用「已知一組真實帳密登入舊 Laravel 系統手動打一次這支 API」或「直接問需求方/翻查 Laravel 原始碼」的方式確認，而不是我自行判斷。
+
+**分類：SAFE_TO_MIGRATE（主體邏輯），但巢狀 key 命名本身需先確認 —— 建議實作前用一次性方式確認真實欄位名稱，而非直接開始寫測試/程式碼**
+
+---
+
+#### #11 `PUT/PATCH /api/v2/admin/contact/{id}` — 重新分析
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | PUT/PATCH |
+| 2. Path | `/api/v2/admin/contact/{id}` |
+| 3. Laravel controller/action | `ContactController@update` |
+| 4. Frontend caller | `api/signedUpClass.ts::updateContactInfo`（**已重新確認：不是「漏了 `{id}`」這麼簡單 —— 全 repo 搜尋，這個函式的呼叫端(call site) 是 0。沒有任何頁面呼叫它。它是完全孤立的死碼**，`PUT /admin/contact`(缺 `{id}`) 這個路徑字串本身也只存在於這個從未被呼叫的函式定義裡） |
+| 5. Request schema（驗證規則） | `ContactCreateRequest`（與 `POST /contact` 完全相同：`class`/`quest`/`company`/`tel`/`num`/`contactList[]` 皆必填） |
+| 6. Response schema | `200 {message, data:Contact}` / `404 {message}` |
+| 7. SQL behavior（實際寫入） | 只嘗試更新 `name` 與 `no` —— 但 Eloquent `$fillable` 不包含這兩個欄位（`contact` 表甚至沒有 `name` 欄位），**實務上兩者都寫不進去，只有 `updated_at` 會變** |
+| 8. Pagination | 不適用 |
+| 9. Transaction | 不適用（沒有真正的寫入） |
+| 10. Side effects | 無（因為是 no-op） |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | **KNOWN_LEGACY_ISSUE #1** —— 驗證規則與實際寫入欄位完全對不上，生產環境等同無效更新 |
+| 14. Frontend mismatch | 前端呼叫端存在但**完全未被使用**（0 call site），且該呼叫本身路徑缺 `{id}` —— 但因為從未執行過，這個「bug」從未在生產環境被觸發過 |
+| 15. Implementation risk | **高**——三個來源（驗證規則／實際寫入欄位／UI 需求）互相不一致，且 UI 端完全沒有编輯表單可供推斷「應該」編輯哪些欄位 |
+
+**重新確認結果**：
+
+- **前端為什麼漏 `{id}`**：不是「漏」，是這個函式從未被接上任何 UI，`{id}` 缺失只是死碼裡的其中一個症狀，不是一個真正在生產環境發生過的 bug
+- **Laravel validation 欄位**：`class`/`quest`/`company`/`tel`/`num`/`contactList[]`（與新增報名相同）
+- **Laravel 實際 update 欄位**：`name`、`no`（皆非法欄位，寫入失敗，等同 no-op）
+- **DB schema**：`contact` 表沒有 `name` 欄位；`no` 欄位存在但不在 Eloquent `$fillable` 允許清單內
+- **UI 實際可編輯欄位**：**零**——`[id].vue` 是純顯示頁，沒有任何輸入框或送出按鈕
+- **OpenAPI contract**：`requestBody` 直接複用 `ContactCreateRequest`（與驗證規則一致），但這個 schema 本身跟「實際會發生什麼」完全脫節
+
+**三個來源（驗證規則 vs 實際寫入 vs UI 需求）彼此不一致，且沒有任何 UI 訊號可以推斷「正確」行為應該是什麼。**
+
+**分類：REQUIRES_PRODUCT_DECISION**（維持先前分析的判斷，本次重新確認後結論不變，但補上「前端其實是完全孤立的死碼」這個新事實，代表**目前沒有任何生產風險**——這支端點在被實作之前，暫不支援不會影響任何現有使用者）
+
+---
+
+#### #12 `DELETE /api/v2/admin/contact`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | DELETE |
+| 2. Path | `/api/v2/admin/contact` |
+| 3. Laravel controller/action | `ContactController@destroy` |
+| 4. Frontend caller | `pages/admin/contact/index.vue::deleteContactData` → `deleteContactInfo({ids})`（**永遠送陣列**，即使只刪一筆） |
+| 5. Request schema | `{ids: number \| number[]}`（`DeleteByIdsRequest`，openapi 標記 UNCONFIRMED shape，但前端行為明確） |
+| 6. Response schema | `200 {message}` / `404 {message}`（列出不存在的 id） |
+| 7. SQL behavior | 陣列模式：先查全部 id 是否存在，任一不存在則整批 404 不刪；全存在才 `DELETE ... WHERE id IN (...)` |
+| 8. Pagination | 不適用 |
+| 9. Transaction | Legacy 無；可比照 `POST /contact` 加上 transaction 包住「查詢存在性 + 刪除」，屬於選配的可靠性改善，非必要 |
+| 10. Side effects | **不會**連帶刪除 `contact_list` 對應資料（known-legacy-issue #9），**必須保留這個現況，不得自行加上 cascade delete** |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | known-legacy-issue #9（孤兒資料）——明確標示為「保留現況」，不是要修的 bug |
+| 14. Frontend mismatch | 無 |
+| 15. Implementation risk | 低（邏輯清楚）；中（若不小心把「保留現況」誤實作成「順手修正」cascade delete，會製造與正式環境不同的資料庫最終狀態） |
+
+**分類：SAFE_TO_MIGRATE**（前提：不得加上 cascade delete）
+
+---
+
+#### #13 `GET /api/v2/admin/contact-list`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | GET |
+| 2. Path | `/api/v2/admin/contact-list` |
+| 3. Laravel controller/action | `ContactListController@index` |
+| 4. Frontend caller | **無**（`api/signedUpClass.ts` 底部只有註解列出這個路徑） |
+| 5. Request schema | 無 |
+| 6. Response schema | `{data: ContactList[]}` |
+| 7. SQL behavior | `SELECT * FROM contact_list`（無過濾、無排序） |
+| 8. Pagination | 無 |
+| 9. Transaction | 不需要 |
+| 10. Side effects | 無 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | 無 |
+| 14. Frontend mismatch | 不適用（前端未使用） |
+| 15. Implementation risk | 低 |
+
+**分類：SAFE_TO_MIGRATE（優先度最低——目前無任何消費者）**
+
+---
+
+#### #14 `GET /api/v2/admin/contact-list/{id}`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | GET |
+| 2. Path | `/api/v2/admin/contact-list/{id}` |
+| 3. Laravel controller/action | `ContactListController@show` |
+| 4. Frontend caller | 無 |
+| 5. Request schema | Path `id: integer` |
+| 6. Response schema | `ContactList`（全欄位） |
+| 7. SQL behavior | `SELECT * FROM contact_list WHERE id=?` |
+| 8. Pagination | 不適用 |
+| 9. Transaction | 不需要 |
+| 10. Side effects | 無 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | 無 |
+| 14. Frontend mismatch | 不適用 |
+| 15. Implementation risk | 低 |
+
+**分類：SAFE_TO_MIGRATE（優先度最低）**
+
+---
+
+#### #15 `GET /api/v2/admin/contact-class/{id}`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | GET |
+| 2. Path | `/api/v2/admin/contact-class/{id}` |
+| 3. Laravel controller/action | `ContactClassController@show` |
+| 4. Frontend caller | `pages/admin/contact/class/[id].vue::getContactClassData` → `getSingleContactClass(id)` |
+| 5. Request schema | Path `id: integer` |
+| 6. Response schema | `ContactClass`（全欄位），與前端 interface 完全一致 |
+| 7. SQL behavior | `SELECT * FROM contact_class WHERE id=? AND del=0` |
+| 8. Pagination | 不適用 |
+| 9. Transaction | 不需要 |
+| 10. Side effects | 無 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | 無 |
+| 14. Frontend mismatch | 無 |
+| 15. Implementation risk | 低 |
+
+**分類：SAFE_TO_MIGRATE**
+
+---
+
+#### #16 `POST /api/v2/admin/contact-class`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | POST |
+| 2. Path | `/api/v2/admin/contact-class` |
+| 3. Laravel controller/action | `ContactClassController@store` |
+| 4. Frontend caller | `pages/admin/contact/class/create_class.vue::addContactClassData` → `addContactClass({name, no})` |
+| 5. Request schema | `{name: string(必填), no: integer(必填)}` |
+| 6. Response schema | `201 {message, data:ContactClass}` / `400 {status:"error", message}` |
+| 7. SQL behavior | `INSERT INTO contact_class (name, no)`，`del` 走 DB default `0` |
+| 8. Pagination | 不適用 |
+| 9. Transaction | 不需要（單一 insert） |
+| 10. Side effects | 無 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | 無 |
+| 14. Frontend mismatch | 無，欄位完全對齊 |
+| 15. Implementation risk | 低 |
+
+**分類：SAFE_TO_MIGRATE**
+
+---
+
+#### #17 `PUT/PATCH /api/v2/admin/contact-class/{id}`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | PUT/PATCH |
+| 2. Path | `/api/v2/admin/contact-class/{id}` |
+| 3. Laravel controller/action | `ContactClassController@update`——api-specification.md 明確標註「此支驗證欄位與實際寫入欄位一致，無疑點」（與 #11 恰成對比） |
+| 4. Frontend caller | **兩個呼叫點**：`pages/admin/contact/contact_class.vue::updateContactClassData(id,no,name)` 與 `pages/admin/contact/class/[id].vue::updateContactClassData()`，皆呼叫 `UpdateContactClass(id, {name, no})` |
+| 5. Request schema | `{name: string(必填), no: integer(必填)}` |
+| 6. Response schema | `200 {message, data:ContactClass}` / `404 {message}` |
+| 7. SQL behavior | 先 `WHERE id=? AND del=0` 查詢確認存在，再 `UPDATE contact_class SET name=?, no=? WHERE id=?` |
+| 8. Pagination | 不適用 |
+| 9. Transaction | 不需要（單一 update，查詢+更新可視情況包 transaction，非必要） |
+| 10. Side effects | 無 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | 無——這是唯一被規格明確排除「有疑點」的 update 端點 |
+| 14. Frontend mismatch | 無，兩個呼叫點欄位皆一致 |
+| 15. Implementation risk | 低 |
+
+**分類：SAFE_TO_MIGRATE**
+
+---
+
+#### #18 `DELETE /api/v2/admin/contact-class`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | DELETE |
+| 2. Path | `/api/v2/admin/contact-class` |
+| 3. Laravel controller/action | `ContactClassController@destroy` |
+| 4. Frontend caller | `pages/admin/contact/contact_class.vue::deleteContactClassData` → `deleteSingleContactClass({ids})`（永遠陣列形式） |
+| 5. Request schema | `{ids: number \| number[]}` |
+| 6. Response schema | `200 {message}` / `404 {message}` |
+| 7. SQL behavior | 與 #12 相同的「先查存在性、任一不存在整批 404」模式，**但這裡是真正的硬刪除整列**——即使 `contact_class` 表本身也有 `del` 欄位 |
+| 8. Pagination | 不適用 |
+| 9. Transaction | 同 #12，選配 |
+| 10. Side effects | 無已知關聯資料需要處理 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | known-legacy-issue #10——軟刪除旗標(`del`)與硬刪除 API 並存，語意不一致，**明確標示「保留現況」，不是要修的 bug** |
+| 14. Frontend mismatch | 無，永遠陣列形式 |
+| 15. Implementation risk | 低（邏輯清楚）；中（若把「保留現況」誤實作成「順手統一改成軟刪除」，會是未經授權的行為變更） |
+
+**分類：SAFE_TO_MIGRATE**（前提：維持硬刪除，不得自行改成軟刪除）
+
+---
+
+#### #19 `GET /api/v2/admin/contact/search/search-company`
+
+| 屬性 | 內容 |
+|---|---|
+| 1. Method | GET |
+| 2. Path | `/api/v2/admin/contact/search/search-company` |
+| 3. Laravel controller/action | `ContactController@searchCompany` |
+| 4. Frontend caller | `pages/admin/contact/index.vue::searchContactInfo` → `searchContactInfo({company})` |
+| 5. Request schema | Query `company`（選填字串） |
+| 6. Response schema | `PaginatedResponse<Contact>` |
+| 7. SQL behavior | `SELECT * FROM contact WHERE company LIKE '%<company>%'`（參數化查詢） |
+| 8. Pagination | `paginate(10)`，可直接沿用 `laravel-pagination.ts` |
+| 9. Transaction | 不需要 |
+| 10. Side effects | 無 |
+| 11. authenticate | 需要 |
+| 12. requireAdmin | 需要 |
+| 13. Legacy bugs | 無(`%`/`_` 萬用字元未轉義是已知、低風險、規格本身標註可接受的行為，非需要修正的 bug) |
+| 14. Frontend mismatch | 無 |
+| 15. Implementation risk | 低 |
+
+**分類：SAFE_TO_MIGRATE**
+
+### 11.2 分類總表
+
+| 分類 | 端點 |
+|---|---|
+| **SAFE_TO_MIGRATE** | #9 `GET admin/contact`、#10 `GET admin/contact/{id}`(巢狀 key 命名需先一次性確認)、#12 `DELETE admin/contact`、#13 `GET admin/contact-list`、#14 `GET admin/contact-list/{id}`、#15 `GET admin/contact-class/{id}`、#16 `POST admin/contact-class`、#17 `PUT admin/contact-class/{id}`、#18 `DELETE admin/contact-class`、#19 `GET admin/contact/search/search-company`（共 9 支，含 #10 的條件） |
+| **MIGRATE_WITH_INTENTIONAL_FIX** | **無**——本批 9 支中，known-legacy-issues 明確記載的 #9(孤兒資料)、#10(軟硬刪除不一致) 兩項規格本身都寫明「保留現況」，不屬於「有明確 bug 且能可靠推導正確行為並應該修正」的情境，因此不落入這個分類 |
+| **REQUIRES_PRODUCT_DECISION** | #11 `PUT admin/contact/{id}`（三方來源衝突 + UI 零訊號） |
+
+### 11.3 Frontend Mismatch 總結
+
+| 端點 | Mismatch | 影響 |
+|---|---|---|
+| #10 `GET admin/contact/{id}` | **新發現**：巢狀關聯 key，openapi 寫 `contactList`，前端型別/模板用 `contact_list` | 若照抄 openapi 字面命名實作，`[id].vue` 的「參加人員名單」表格會靜默顯示空清單(不會報錯,只是查無資料),需要在實作前確認真實欄位名稱 |
+| #11 `PUT admin/contact/{id}` | 呼叫端存在但 0 call site,且缺 `{id}` | 目前對生產環境零影響(死碼);若未來真的要接上編輯 UI,除了要解決 REQUIRES_PRODUCT_DECISION,也要同時修正這個呼叫本身 |
+| 其餘 7 支 | 無 | — |
+
+### 11.4 Legacy Bugs 總結（本批相關）
+
+| # | 問題 | 端點 | 建議 Node 行為 |
+|---|---|---|---|
+| known-legacy-issues #1 | 驗證欄位與實際寫入欄位不一致 | #11 | 不得照抄；需要產品決策 |
+| known-legacy-issues #2 | admin/* 完全沒有 `is_admin` 檢查 | 全部 9 支 | **已決策修正**——一律 `authenticate → requireAdmin`，不複製這個問題 |
+| known-legacy-issues #9 | `DELETE admin/contact` 不會級聯刪除 `contact_list` | #12 | **保留現況**，不得自行加 cascade |
+| known-legacy-issues #10 | `contact_class` 軟刪除旗標與硬刪除 API 並存 | #18 | **保留現況**，不得自行改成軟刪除 |
+
+### 11.5 建議 Migration Batches
+
+**Batch 1（優先）—— 唯讀、無 side effect、契約明確**：
+1. `GET /api/v2/admin/contact`(#9)
+2. `GET /api/v2/admin/contact/{id}`(#10)——**實作前先確認巢狀 key 命名**
+3. `GET /api/v2/admin/contact-class/{id}`(#15)
+4. `GET /api/v2/admin/contact/search/search-company`(#19)
+5. `GET /api/v2/admin/contact-list`(#13)、`GET /api/v2/admin/contact-list/{id}`(#14)——可與上述一起做，但因目前零消費者，優先度可再往後放
+
+**Batch 2（其次）—— 簡單 create/update/delete，契約乾淨無疑點**：
+6. `POST /api/v2/admin/contact-class`(#16)
+7. `PUT /api/v2/admin/contact-class/{id}`(#17)
+
+**Batch 3（最後）—— legacy 行為有問題 / destructive operation**：
+8. `DELETE /api/v2/admin/contact`(#12)——destructive，需注意「不得加 cascade」
+9. `DELETE /api/v2/admin/contact-class`(#18)——destructive，需注意「不得改成軟刪除」
+10. `PUT /api/v2/admin/contact/{id}`(#11)——**維持 REQUIRES_PRODUCT_DECISION，不排入任何 batch，等待決策**
+
+### 11.6 Admin Authorization Integration Test 規劃
+
+對 Batch 1/2/3 中每一支實作出來的端點，建議至少 3 個授權層級測試（沿用 `authenticate`/`requireAdmin` 既有元件，不需新的 middleware）：
+
+```
+無 Authorization header          → 401
+一般使用者 JWT(isAdmin:false)     → 403（來自 requireAdmin，非 controller 邏輯本身）
+admin JWT(isAdmin:true)          → 依端點正常進入 controller(200/201/實際業務邏輯)
+```
+
+比照現有 `auth-logout.test.ts` 的模式，可以直接用 `jwt.sign({sub,email,isAdmin}, JWT_SECRET, {expiresIn:'1h'})` 產生兩種 token(一般/admin)重複用在每支端點的測試檔開頭，不需要為每支端點重新設計授權測試邏輯——這部分測試程式碼可以高度共用（例如抽成一個 `tests/helpers/auth-tokens.ts` 之類的共用 helper，屆時實作階段再建立）。
+
+### 11.7 預估完成後的 Parity %
+
+- 若完成 Batch 1 + Batch 2 + Batch 3 中的 #12/#18（**共 9 支中的 8 支，排除 #11**）：**16/19 ≈ 84%**（14 支完全 DONE + 2 支帶已知非功能性缺口的 DONE：`GET faq` cache 待補、`POST contact` queue 待補）；`PUT admin/contact/{id}` 維持 NOT_IMPLEMENTED，正式標記為「等待產品決策」而非「尚未排入工作」
+- 若 #11 未來也被決策並實作：**17/19 ≈ 89%**
+
+### 11.8 尚未解決的 Production Cutover Blockers（完成這 9 支後）
+
+即使 Admin API 全部(含 #11)完成，以下項目仍會繼續卡住 §9 的 production cutover checklist，**不會**因為 admin API 完成而自動解決：
+
+1. **Frontend 完全沒有跟進**（§10.13 清單）——即使 backend admin API 全部就緒，`pages/admin/*` 目前的呼叫方式(尤其是 Authorization header 非動態讀取)仍然可能造成登入後立即呼叫 admin API 時帶著過期的 header
+2. FAQ 24 小時 cache 仍未實作
+3. `POST /contact` 的 Queue 化仍是 deferred
+4. `CORS_ALLOWED_ORIGINS` 正式 origin 尚未設定
+5. Production `JWT_SECRET`/`RECIPIENT_EMAIL`/`MAIL_*` 是否已在 Zeabur 設定真實值尚未驗證(這在本分析範圍外，屬於部署檢查)
+6. Mail 模板原始內容/排版仍是重建品，非逐字複製(已知缺口)
+7. Staging integration test 完全沒有進行過
+8. 若 `PUT /admin/contact/{id}` 決策後選擇「新增全新的正確行為」而非「維持 legacy no-op」，需要**同時**新增前端編輯 UI(目前完全不存在)，這是一筆跨 stack 的工作，不只是後端 API
+
+---
+
 ## 附錄：資料來源
 
 - `specs/shared/api-contracts/api-specification.md`、`api-business-logic.md`、`openapi.yaml`、`auth-login.md`
@@ -665,4 +1035,5 @@ authenticate → requireAdmin → controller
 - `backend/src/`（全部 routes/modules/middleware/infrastructure）
 - `backend/tests/`（全部 unit/integration）
 - `backend/docker-compose.yml`（確認無 Redis service）
-- `frontend/api/`、`frontend/store/`、`frontend/pages/`、`frontend/components/`、`frontend/layouts/`、`frontend/utils/http.ts`
+- `frontend/api/`、`frontend/store/`、`frontend/pages/`（含 `pages/admin/contact/*.vue` 逐檔重新確認呼叫端）、`frontend/components/`、`frontend/layouts/`、`frontend/utils/http.ts`
+- `specs/shared/api-contracts/openapi.yaml` 完整 9 個 admin path 定義（§11 專用）
