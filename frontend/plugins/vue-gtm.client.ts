@@ -3,10 +3,11 @@ import type { Router } from 'vue-router';
 
 export default defineNuxtPlugin((nuxtApp) => {
     const router = nuxtApp.$router as Router;
-    const gtmId = import.meta.env.VITE_GTM_ID;
+    const { public: publicConfig } = useRuntimeConfig();
+    const gtmId = publicConfig.gtmId;
 
     if (!gtmId) {
-        console.error('❌ [GTM] VITE_GTM_ID is not defined in .env!');
+        console.error('❌ [GTM] NUXT_PUBLIC_GTM_ID is not defined in .env!');
         return;
     }
 

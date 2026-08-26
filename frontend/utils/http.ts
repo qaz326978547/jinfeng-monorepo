@@ -4,7 +4,6 @@ import { usePublicStore } from '@/store/usePublicStore';
 // 封装 Axios 请求
 const { apiBaseUrl, isLoading } = storeToRefs(usePublicStore());
 const ajax = axios.create({
-    baseURL: apiBaseUrl.value,
     withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
@@ -13,11 +12,17 @@ const ajax = axios.create({
     timeout: 60000 // 超时设置
 });
 
-// Read the token fresh from localStorage on every request instead of baking it into the
-// axios instance's static headers at module-eval time — otherwise a login that happens
-// after this module first loads would never be reflected in later requests (the instance's
-// headers object was already built with whatever token existed at that moment, usually none).
+// Both baseURL and the Authorization header are resolved fresh on every request inside
+// this interceptor rather than once when the axios instance is created. For baseURL this
+// matters because `usePublicStore()` above runs at module top-level (outside any
+// component/plugin setup) — useRuntimeConfig() must not be called until we're inside a
+// real request, which is exactly when this interceptor runs (apiBaseUrl.value is a lazy
+// computed, so nothing unsafe happens until this callback actually accesses it). For the
+// token, it's simply so a login that happens after this module first loads is reflected
+// on later requests (the instance's headers would otherwise be frozen with whatever token
+// existed at module-eval time, usually none).
 ajax.interceptors.request.use((config) => {
+    config.baseURL = apiBaseUrl.value;
     if (process.client) {
         const token = localStorage.getItem('token');
         if (token) {

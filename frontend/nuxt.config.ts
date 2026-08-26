@@ -31,8 +31,18 @@ export default defineNuxtConfig({
     },
     runtimeConfig: {
         public: {
-            // 正式網址；未設定環境變數時預設為正式網域，避免 preview/staging 環境誤植錯誤 canonical
-            siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://laborservice5690.com'
+            // Backend API origin (no trailing /api/v2 — that's appended in
+            // store/usePublicStore.ts). Nuxt automatically overrides this default with
+            // NUXT_PUBLIC_API_BASE_URL when set (standard runtimeConfig convention — no
+            // manual process.env read needed). Local dev default matches
+            // backend/docker-compose.yml's exposed port.
+            apiBaseUrl: 'http://127.0.0.1:8080',
+            // 正式網址；未設定環境變數時預設為正式網域，避免 preview/staging 環境誤植錯誤 canonical。
+            // Override via NUXT_PUBLIC_SITE_URL.
+            siteUrl: 'https://laborservice5690.com',
+            // Google Tag Manager container ID. Empty = GTM disabled, see
+            // plugins/vue-gtm.client.ts. Override via NUXT_PUBLIC_GTM_ID.
+            gtmId: ''
         }
     },
     app: {
@@ -67,19 +77,15 @@ export default defineNuxtConfig({
         }
     },
     vite: {
-        define: {
-            'process.env': process.env
-        },
-        server: {
-            proxy: {
-                '/api': {
-                    target:
-                        process.env.NODE_ENV === 'production' ? process.env.NUXT_API_BASE_URL : 'http://127.0.0.1:9001',
-                    changeOrigin: true,
-                    rewrite: (path) => path.replace(/^\/api/, '/api')
-                }
-            }
-        },
+        // No `define: {'process.env': process.env}` here — that used to dump the entire
+        // build-time process.env object into the client bundle (see
+        // specs/backend/production-env-readiness.md §2.1). All env values the client needs
+        // now flow through the runtimeConfig.public allowlist above instead.
+        //
+        // The old `server.proxy['/api']` dev-server proxy is also gone: nothing in this
+        // app calls a relative `/api/...` path — every axios/useFetch call already passes
+        // an absolute `baseURL` (via usePublicStore().apiBaseUrl), so the proxy was dead
+        // code, and it read the now-removed NUXT_API_BASE_URL name.
         resolve: {
             alias: {
                 images: '/assets/img'

@@ -240,18 +240,20 @@ bun run generate
 
 ## 環境變數
 
-專案可能需要以下環境變數 (請建立 `.env` 文件):
+見 `frontend/.env.example`（唯一的真相來源，內容已對照 `nuxt.config.ts`/`store/usePublicStore.ts`/`plugins/vue-gtm.client.ts` 的實際程式碼逐一核對）。三個變數都走 Nuxt `runtimeConfig.public` 的標準 override 慣例：
 
 ```env
-# API Base URL
-NUXT_PUBLIC_API_BASE_URL=your_api_url
+# 後端 API origin（不含路徑，/api/v2 由 store/usePublicStore.ts 附加）
+NUXT_PUBLIC_API_BASE_URL=http://localhost:8080
 
-# Google Tag Manager
-NUXT_PUBLIC_GTM_ID=your_gtm_id
+# 正式網址，用於 canonical URL / SEO metadata
+NUXT_PUBLIC_SITE_URL=http://localhost:3000
 
-# CloudFront CDN
-NUXT_PUBLIC_CDN_URL=https://d1vjl2px6hqzku.cloudfront.net
+# Google Tag Manager 容器 ID，留空 = 不啟用 GTM
+NUXT_PUBLIC_GTM_ID=
 ```
+
+CDN 圖片網址（`https://d1vjl2px6hqzku.cloudfront.net`）目前是直接寫死在 `composables/useLaborSiteConfig.ts` 等檔案裡，**沒有**對應的環境變數。
 
 ## 路由規則
 

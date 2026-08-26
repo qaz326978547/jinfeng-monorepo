@@ -578,12 +578,16 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | 5 | mail confirmed | ⚠️ 進行中：`POST /contact` 的同步 Mail 已 DONE,但原始模板內容/排版是重建品非逐字複製(已知缺口，見 §1.2);其餘尚無其他端點需要 mail |
 | 6 | queue confirmed | ❌ 刻意 deferred(本階段任務範圍明確排除,`POST /contact` 用同步寄信) |
 | 7 | cache confirmed | ❌ FAQ 24hr cache 仍未實作(API 行為本身已 DONE) |
-| 8 | CORS confirmed | ⚠️ 機制已就緒,但正式 origin 尚未設定 |
+| 8 | CORS confirmed | ⚠️ **仍未達成，維持保留**——機制已就緒且已於 2026-08-27 完成完整的 code/config readiness 稽核（見 `specs/backend/production-env-readiness.md`，含正式 origin 清單建議、wildcard+credentials 檢查、www 重導向分析），但**尚未在 Zeabur 實際設定** `CORS_ALLOWED_ORIGINS`，也尚未經過 production 實測；readiness 稽核不等於 production verification，不得視為達成 |
 | 9 | backend tests passed | ✅ 193/193 全數通過(本階段從 155 增加到 193),覆蓋率提升到 18/19 端點(16 完全 DONE + 2 帶已知缺口) |
 | 10 | frontend build passed | ✅ `npm run build` 通過(與 API 是否可用無關,純建置檢查；本階段未修改 frontend) |
 | 11 | staging integration test passed | ❌ 尚未進行(backend 功能仍不足,無法有意義地跑 staging 測試) |
 
 **目前 11 項中 6 項達成、2 項進行中(schema/build/測試綠燈、frontend API 覆蓋率、admin 授權、auth flow 皆已達成；mail/CORS 有進展但帶明確保留)，其餘 3 項仍未達成(queue/cache/staging test)。⚠️ 6/11 達成**不代表 production cutover 已 ready**——`queue confirmed`、`cache confirmed`、`staging integration test passed` 三項完全沒有進展，這是本輪明確要求不能因為 frontend auth UX 完成就一併虛報的項目。核心剩餘阻礙：FAQ cache、Contact Queue、CORS 正式 origin、production 環境變數驗證、Mail 模板逐字複製、staging test。**
+
+**2026-08-27 補充**：CORS 與 production 環境變數已完成完整的 code/config readiness 稽核，詳見 `specs/backend/production-env-readiness.md`（backend/frontend env matrix、CORS origin 清單、Zeabur service env checklist、deployment blockers、manual verification steps）。**這些都只是程式碼/設定面的稽核結果，不是 production 已驗證——CORS/mail/env 在此列表中的狀態不因此稽核而改變為達成。**
+
+**2026-08-27 補充（同日，後續批次）——Frontend Env/Config Hardening**：上一段記錄的 frontend 部署阻斷項（`vite.define: {'process.env': process.env}` 沒有 allowlist、`NUXT_API_BASE_URL` 疑似必須 build-time 注入）**已修正**，改用 Nuxt 標準 `runtimeConfig.public` 機制（`NUXT_PUBLIC_API_BASE_URL`/`NUXT_PUBLIC_SITE_URL`/`NUXT_PUBLIC_GTM_ID`），並實測確認**只需 runtime（container 啟動時）注入即可，不需要 build-time 綁定**；`frontend/README.md` 與 `.env.example` 已同步更新為一致的變數名稱。詳細實作紀錄與 Zeabur 部署方式建議（優先採用 Nuxt 自動偵測，非自建 Dockerfile）見 `specs/backend/production-env-readiness.md` §11。`frontend/` 仍然沒有 Dockerfile，部署方式仍待有 Zeabur 存取權限的人實際拍板與部署驗證——**這件事本身沒有因為本批而變成 DONE**，只是阻斷等級從 🔴 降為 🟡（build-time 綁定的急迫性已解除）。CORS 正式 origin 設定、Zeabur production 實測、staging test 三項**完全未受本批影響**，維持原狀，不得視為達成。
 
 ---
 
