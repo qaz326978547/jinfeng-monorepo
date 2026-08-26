@@ -4,7 +4,10 @@ import type { Transporter } from 'nodemailer';
 import type { Logger } from 'pino';
 import { createAuthRouter } from '../modules/auth/auth.routes';
 import { createContactRouter } from '../modules/contact/contact.routes';
+import { createAdminContactRouter } from '../modules/contact/admin-contact.routes';
 import { createContactClassRouter } from '../modules/contact-class/contact-class.routes';
+import { createAdminContactClassRouter } from '../modules/contact-class/admin-contact-class.routes';
+import { createContactListRouter } from '../modules/contact-list/contact-list.routes';
 import { createContactQuestRouter } from '../modules/contact-quest/contact-quest.routes';
 import { createFaqRouter } from '../modules/faq/faq.routes';
 import { createSeoRouter } from '../modules/seo/seo.routes';
@@ -55,7 +58,23 @@ export function createRootRouter(deps: RouterDeps): Router {
       logger: deps.logger,
     }),
   );
-  // Future modules (admin/*) mount here.
+  // Admin endpoints — each router mounts its own authenticate + requireAdmin
+  // (specs/backend/laravel-to-node-parity.md §10.13/§11): a normal logged-in
+  // user must never reach these controllers, unlike the legacy Laravel app.
+  apiV2.use(
+    '/admin/contact',
+    createAdminContactRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }),
+  );
+  apiV2.use(
+    '/admin/contact-class',
+    createAdminContactClassRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }),
+  );
+  apiV2.use(
+    '/admin/contact-list',
+    createContactListRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }),
+  );
+  // Remaining admin/* writes (POST/PUT/DELETE contact-class, DELETE contact)
+  // mount here in a later batch; PUT /admin/contact/{id} is deferred (§11).
   router.use(API_V2_BASE_PATH, apiV2);
 
   return router;

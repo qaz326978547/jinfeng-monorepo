@@ -1,6 +1,11 @@
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { withTransaction } from '../../infrastructure/database/transaction';
+import type { ContactListRow } from '../contact-list/contact-list.repository';
 import type { CreateContactRequest } from './contact.schemas';
+
+interface CountRow extends RowDataPacket {
+  total: number;
+}
 
 export interface ContactRow extends RowDataPacket {
   id: number;
@@ -93,5 +98,63 @@ export class ContactRepository {
       throw new Error(`contact ${id} not found immediately after insert`);
     }
     return row;
+  }
+
+  // ---- Admin read methods (GET /admin/contact, /admin/contact/{id},
+  // /admin/contact/search/search-company) ----
+
+  /** Mirrors legacy ContactController@index: ORDER BY created_at DESC, paginate(10). */
+  async countAll(): Promise<number> {
+    const [rows] = await this.pool.query<CountRow[]>('SELECT COUNT(*) AS total FROM contact');
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  async findPage(limit: number, offset: number): Promise<ContactRow[]> {
+    const [rows] = await this.pool.query<ContactRow[]>(
+      'SELECT * FROM contact ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [limit, offset],
+    );
+    return rows;
+  }
+
+  /** Mirrors legacy ContactController@show. */
+  async findById(id: number): Promise<ContactRow | null> {
+    const [rows] = await this.pool.query<ContactRow[]>('SELECT * FROM contact WHERE id = ?', [
+      id,
+    ]);
+    return rows[0] ?? null;
+  }
+
+  /** The `with('contactList')` eager-load in ContactController@show. */
+  async findContactListByContactId(cid: number): Promise<ContactListRow[]> {
+    const [rows] = await this.pool.query<ContactListRow[]>(
+      'SELECT * FROM contact_list WHERE cid = ?',
+      [cid],
+    );
+    return rows;
+  }
+
+  /**
+   * Mirrors legacy ContactController@searchCompany: parameterized LIKE,
+   * paginate(10). No ORDER BY is documented for this endpoint (unlike
+   * #9/index, which is explicitly `created_at DESC`) — none is added here;
+   * MySQL's unspecified default row order applies, matching what the spec
+   * actually says rather than assuming the index endpoint's ordering by
+   * analogy.
+   */
+  async countByCompany(company: string): Promise<number> {
+    const [rows] = await this.pool.query<CountRow[]>(
+      'SELECT COUNT(*) AS total FROM contact WHERE company LIKE ?',
+      [`%${company}%`],
+    );
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  async findByCompanyPage(company: string, limit: number, offset: number): Promise<ContactRow[]> {
+    const [rows] = await this.pool.query<ContactRow[]>(
+      'SELECT * FROM contact WHERE company LIKE ? LIMIT ? OFFSET ?',
+      [`%${company}%`, limit, offset],
+    );
+    return rows;
   }
 }

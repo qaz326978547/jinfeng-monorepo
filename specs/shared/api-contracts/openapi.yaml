@@ -247,10 +247,17 @@ components:
         "no": { type: integer }
         created_at: { type: [string, "null"], format: date-time }
         updated_at: { type: [string, "null"], format: date-time }
-        contactList:
+        contact_list:
           type: array
           items: { $ref: "#/components/schemas/ContactList" }
-          description: "Only present when loaded via GET /api/v2/admin/contact/{id} (with('contactList'))."
+          description: >
+            Only present when loaded via GET /api/v2/admin/contact/{id}. Field name is
+            snake_case (not the `contactList()` Eloquent relation method name) — this reflects
+            Laravel Eloquent's default relation serialization, confirmed against the actual
+            frontend contract (frontend/api/interface/signedUpClass.ts's ContactListData and
+            pages/admin/contact/[id].vue both read `contact_list`). A prior revision of this
+            schema had `contactList` (camelCase), which was a documentation error, not a
+            deliberate contract choice — see specs/backend/laravel-to-node-parity.md §11.1 #10.
       x-source-file: app/Models/ContactModel.php
       x-confirmation-status: CONFIRMED
 
@@ -599,7 +606,7 @@ paths:
         schema: { type: integer }
     get:
       operationId: adminGetContact
-      summary: 管理端：取得單筆報名資料（含 contactList 關聯）
+      summary: 管理端：取得單筆報名資料（含 contact_list 關聯）
       tags: [Admin]
       security: [{ bearerAuth: [] }]
       x-source-file: app/Http/Controllers/Contact/ContactController.php

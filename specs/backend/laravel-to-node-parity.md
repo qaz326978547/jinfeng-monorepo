@@ -11,22 +11,27 @@
 
 ## 1. 整體完成百分比
 
-**19 支 Laravel API 中，Node 後端目前 6 支完全 DONE + 2 支 DONE 但帶有已標示的非功能性缺口（合計 8/19 ≈ 42%）。**
+**19 支 Laravel API 中，Node 後端目前 12 支完全 DONE + 2 支 DONE 但帶有已標示的非功能性缺口 + 1 支正式 DEFERRED（合計 14/19 ≈ 74% 功能完成；12/19 ≈ 63% 無任何保留的完整 DONE）。**
 
-**⚠️ 這不代表整個 auth flow 已 production-ready**——`register`/`logout` 的 API 本身已完成，但 frontend 端(localStorage 動態讀取、logout UI、401 自動清 token、`/admin/*` route guard)完全未跟進，見 §10.13。
+**⚠️ 這不代表 production-ready**——見下方「功能 endpoint 完成率 vs production parity」的區分，以及 §9 production cutover checklist。`register`/`logout`/6 支新 admin 端點的 API 本身已完成，但 frontend 端(localStorage 動態讀取、logout UI、401 自動清 token、`/admin/*` route guard)完全未跟進，見 §10.13；FAQ cache 與 Contact Queue 仍是 PARTIAL，兩者都**不計入** production-ready 的判斷。
 
 | 狀態 | 數量 | 佔比 | 說明 |
 |---|---|---|---|
-| **DONE** | 6 | 32% | `POST /api/v2/auth/login`、`POST /api/v2/auth/register`、`POST /api/v2/auth/logout`、`GET /api/v2/seo`、`GET /api/v2/contact-class`、`GET /api/v2/contact-quest` — 完整實作 + integration/unit test 全過 |
-| **DONE(API+DB+Mail)/PARTIAL(Queue)** | 1 | 5% | `POST /api/v2/contact` — API 行為、DB atomicity、Mail(同步)皆 DONE；**Queue 未實作**(見 §1.2)，**不算 production parity 完整完成** |
-| **DONE(API)/PARTIAL(cache)** | 1 | 5% | `GET /api/v2/faq` — 查詢/排序/欄位投影與 Laravel 完全一致，**但 24 小時 cache 尚未實作**（見 §1.1），留有明確 TODO，**不算 production parity 完整完成** |
-| **NOT_IMPLEMENTED** | 11 | 58% | 全部 9 支 `admin/*` — **backend/src/routes 完全沒有掛載對應路由**，呼叫會落到 `notFoundHandler`(404) |
-| **BEHAVIOR_MISMATCH** | 0 | — | 已實作的 8 支經 integration test 驗證，與規格一致，無 mismatch（`POST /contact` 的 DB atomicity、`logout` 的 stateless 設計皆是刻意的行為改善/決策，非 mismatch） |
+| **DONE** | 12 | 63% | `login`/`register`/`logout`、`seo`、`contact-class`、`contact-quest`、`GET admin/contact`、`GET admin/contact/{id}`、`GET admin/contact-class/{id}`、`GET admin/contact/search/search-company`、`GET admin/contact-list`、`GET admin/contact-list/{id}` — 完整實作 + integration/unit test 全過 |
+| **DONE(API+DB+Mail)/PARTIAL(Queue)** | 1 | 5% | `POST /api/v2/contact` — **不算 production parity 完整完成**（Queue 未實作，見 §1.2） |
+| **DONE(API)/PARTIAL(cache)** | 1 | 5% | `GET /api/v2/faq` — **不算 production parity 完整完成**（cache 未實作，見 §1.1） |
+| **DEFERRED / NOT_REQUIRED_BY_CURRENT_UI** | 1 | 5% | `PUT /api/v2/admin/contact/{id}` — **正式決策不在本階段實作**，理由見 §11.1 #11 與 §11.9（三方 contract 衝突 + frontend 0 call site + legacy no-op）。**不得視為「忘記實作」的 NOT_IMPLEMENTED，也不為了湊 19/19 而人工創造新行為** |
+| **NOT_IMPLEMENTED** | 4 | 21% | `DELETE admin/contact`、`POST admin/contact-class`、`PUT admin/contact-class/{id}`、`DELETE admin/contact-class` — 留給下一批(Admin Batch 2/3) |
+| **BEHAVIOR_MISMATCH** | 0 | — | 已實作的 14 支經 integration test 驗證，與規格一致，無 mismatch |
 | **UNKNOWN** | 0 | — | 無 |
 
-**結論：`backend/` 現在能正確服務首頁 SEO meta、FAQ 頁、報名表單的下拉選單與送出、完整的登入/註冊/登出 API，但整個後台管理（`admin/*`，含檢視/編輯/刪除報名資料）仍未實作，且 frontend 尚未跟上 auth API 的變化，還不能取代 Laravel 後端。**
+**功能 endpoint 完成率 vs production parity（依指示明確區分）**：
+- **功能 endpoint 完成率**：14/19 ≈ 74%（DONE + 帶已知缺口的 DONE），或嚴格只算完全無保留的 DONE 則 12/19 ≈ 63%
+- **Production parity**：明顯更低——即使全部 19 支都是 DONE，FAQ cache、Contact Queue、frontend 完全未跟進、CORS 正式 origin、production 環境變數、staging test 等 §9 checklist 項目都還沒有一項是完全達成的「可以切換」狀態，見 §9 完整表格
 
-OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全部 19 個 operation(15 個 path），品質良好、可直接作為實作依據 —— 已實作的 8 支皆通過 `npm run openapi:validate`。
+**結論：`backend/` 現在能正確服務首頁 SEO meta、FAQ 頁、報名表單的下拉選單與送出、完整的登入/註冊/登出 API，以及後台的 6 支唯讀端點（列表/單筆檢視/搜尋），但後台的新增/修改/刪除功能與 `PUT admin/contact/{id}` 仍未實作，且 frontend 尚未跟上這幾批 API 的變化，還不能取代 Laravel 後端。**
+
+OpenAPI 契約層(`specs/shared/api-contracts/openapi.yaml`)已完整定義全部 19 個 operation(15 個 path），品質良好、可直接作為實作依據 —— 已實作的 14 支皆通過 `npm run openapi:validate`，本階段並修正了一處文件本身的錯誤（見 §1.4）。
 
 ### 1.1 第三階段更新（2026-08-26）—— 第一批 Public Read API
 
@@ -103,6 +108,34 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 
 **Logout 是 stateless 設計，不是遺漏**：`authenticate` middleware 已經確保跑到 `logout` handler 時一定有合法、未過期的 token；handler 本身不做任何 DB 寫入、不建 blacklist、不用 Redis、不改 DB schema。**同一顆尚未過期的 JWT 在呼叫 logout 之後仍然對 `authenticate` 有效**——這不是 bug，是 §10.9 選定方案 A 的明確 security trade-off，已有專門測試(`auth-logout.test.ts`)驗證並記錄這個行為。真正讓單一瀏覽器完成登出，要靠未來的 frontend 任務清除 `localStorage` 的 token。
 
+### 1.4 第六階段更新（2026-08-26）—— Admin Batch 1（6 支唯讀端點）
+
+**`GET admin/contact`、`GET admin/contact/{id}`、`GET admin/contact-class/{id}`、`GET admin/contact/search/search-company`、`GET admin/contact-list`、`GET admin/contact-list/{id}`：全部 DONE。`PUT admin/contact/{id}` 正式 DEFERRED，未排入本批或任何已排程的下一批。**
+
+新增/修改檔案：
+
+- `backend/src/shared/http/request-path.ts`（新增）—— 從 `contact-quest.controller.ts` 抽出的 `buildRequestPath()`，供新的 admin 分頁端點共用；**未修改 `contact-quest.controller.ts` 本身**(它保留自己原本的區域副本，避免碰觸已測試過的既有程式碼)
+- `backend/src/shared/http/pagination-query.schema.ts`（新增）—— 共用的 `?page=` Zod schema，同上，未回頭修改 `contact-quest.schemas.ts`
+- `backend/src/modules/contact-list/`（新增模組）—— `contact-list.repository.ts` / `.schemas.ts` / `.service.ts` / `.controller.ts` / `.routes.ts`（`admin/contact-list` 兩支）
+- `backend/src/modules/contact/contact.repository.ts`（修改）—— 新增 `countAll`/`findPage`/`findById`/`findContactListByContactId`/`countByCompany`/`findByCompanyPage`（共用既有 `ContactRepository`，未另建 admin 專用 repository）
+- `backend/src/modules/contact/admin-contact.schemas.ts`/`admin-contact.service.ts`/`admin-contact.controller.ts`/`admin-contact.routes.ts`（新增，`modules/contact/` 的 admin 專用 sibling 檔案）
+- `backend/src/modules/contact-class/contact-class.repository.ts`（修改）—— 新增 `findByIdActive`
+- `backend/src/modules/contact-class/admin-contact-class.schemas.ts`/`admin-contact-class.service.ts`/`admin-contact-class.controller.ts`/`admin-contact-class.routes.ts`（新增）
+- `backend/src/routes/index.ts`（修改）—— 掛載 3 個 admin router，各自內部 `router.use(authenticate, requireAdmin)`
+- `backend/tests/helpers/auth-tokens.ts`（新增）—— 共用的 `normalUserToken()`/`adminUserToken()`/`expiredToken()`
+- `backend/tests/integration/admin-contact.test.ts`、`admin-contact-class.test.ts`、`admin-contact-list.test.ts`（新增）
+- `specs/shared/api-contracts/openapi.yaml`（修改）—— contract correction，見下方
+
+**Architecture 決策**：沒有建立獨立的 `modules/admin/` 目錄。Admin 專用的 service/controller/routes 以「同一 resource 目錄下的 sibling 檔案」形式存在（例如 `modules/contact/admin-contact.routes.ts` 緊鄰 `modules/contact/contact.routes.ts`），並直接重用同一個 `ContactRepository`/`ContactClassRepository` 實例類別（只是新增方法，不是新建 class）。這樣公開版與管理版的查詢邏輯共用同一個 repository，同時保持「public 端點與 admin 端點責任分離」——因為 authorization 是掛在各自的 `*.routes.ts`（middleware 層），repository 完全不知道呼叫者是不是 admin，符合指示「Authorization 必須放 route/middleware layer，不要在 repository 判斷 admin」。`contact-list` 因為在既有模組中沒有對應的 public resource（規格中沒有 `GET /contact-list` 這種公開端點），所以新開一個和其他 resource 同級的 `modules/contact-list/`，而不是塞進 `modules/contact/`。
+
+**Authorization 實作**：`AdminContactRouterDeps`/`AdminContactClassRouterDeps`/`ContactListRouterDeps` 都收 `jwtSecret`，各自的 router 在最上層用 `router.use(authenticate(deps.jwtSecret), requireAdmin)`，其後掛載的所有子路由自動繼承這個保護，不需要每支 route 個別重複掛。三層驗證(401/403/200)已用共用的 `tests/helpers/auth-tokens.ts` 覆蓋每一支端點。
+
+**`contact_list` contract correction（依產品決策執行）**：`GET /admin/contact/{id}` 的 response 巢狀 key 正式採用 `contact_list`（snake_case），已同步修正 `specs/shared/api-contracts/openapi.yaml` 的 `Contact` schema（原本誤植為 `contactList`），並在 schema description 中註明這是文件更正、來源依據為何。**注意**：`openapi.yaml` 另外還有幾處 `contactList`（`ContactCreateRequest.contactList`，`POST /contact` 與 `PUT /admin/contact/{id}` 的**請求** body 欄位），這些是完全不同的欄位（前端送出的報名人員陣列，已在 `POST /contact` 實作中確認為 camelCase 且已測試），**沒有被這次修正影響、也不應該被影響**——已逐一核對過，只改了 `Contact` schema 的**回應**巢狀 key。`npm run openapi:validate` 通過。
+
+**Search-company 排序的忠實實作**：`api-specification.md`/`api-business-logic.md` 對 #19 都沒有提到任何 `ORDER BY`（不像 #9 明確寫「依 created_at 由新到舊排序」）。`findByCompanyPage` 因此**沒有加任何 ORDER BY**，忠實反映規格沒說的就不加，不是因為疏漏或依賴 MySQL 未定義的預設順序做了任何假設。
+
+**404 回應格式**：`GET admin/contact/{id}`、`GET admin/contact-class/{id}`、`GET admin/contact-list/{id}` 的 404 都是 controller 直接 `res.status(404).json({message:"找不到資料"})`，**沒有**經過既有的 `NotFoundError`/`isAppError` 通用分支——因為那個分支會額外夾帶 `code`/`requestId` 欄位，不符合 `api-specification.md`「統一錯誤格式」#3 記載的純 `{message}` 格式。這是刻意的選擇，不是遺漏了要用共用錯誤類別。
+
 ---
 
 ## 2. API Parity Matrix
@@ -119,17 +152,17 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | 6 | POST | `/api/v2/auth/login` | **DONE** | ✅ | ✅ 是 | ✅ 18 tests | ✅ |
 | 7 | POST | `/api/v2/auth/register` | **DONE** | ✅ | ⚠️ 前端有呼叫但**未接 UI**(死碼，見 4.2) | ✅ 11 tests | ✅ |
 | 8 | POST | `/api/v2/auth/logout` | **DONE(stateless)** | ✅ | ❌ 前端完全沒有登出功能(見 §10.13) | ✅ 6 tests | ✅ |
-| 9 | GET | `/api/v2/admin/contact` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
-| 10 | GET | `/api/v2/admin/contact/{id}` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
-| 11 | PUT/PATCH | `/api/v2/admin/contact/{id}` | NOT_IMPLEMENTED + **KNOWN_LEGACY_ISSUE** | ❌ | ⚠️ 是,但前端呼叫**沒帶 `{id}`**(見 5.1) | ❌ | ✅ |
+| 9 | GET | `/api/v2/admin/contact` | **DONE** | ✅ | ✅ 是 | ✅ 6 tests | ✅ |
+| 10 | GET | `/api/v2/admin/contact/{id}` | **DONE** | ✅ | ✅ 是 | ✅ 4 tests | ✅(已修正 contact_list key) |
+| 11 | PUT/PATCH | `/api/v2/admin/contact/{id}` | **DEFERRED / NOT_REQUIRED_BY_CURRENT_UI**(正式決策,見 §11.1 #11/§11.9) + **KNOWN_LEGACY_ISSUE** | ❌ | ❌ 呼叫端存在但 0 call site,完全死碼(見 §11.1 #11 重新確認) | ❌ | ✅(request schema 仍在,但不代表要實作) |
 | 12 | DELETE | `/api/v2/admin/contact` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
-| 13 | GET | `/api/v2/admin/contact-list` | NOT_IMPLEMENTED | ❌ | ❌ 前端未呼叫(只有註解) | ❌ | ✅ |
-| 14 | GET | `/api/v2/admin/contact-list/{id}` | NOT_IMPLEMENTED | ❌ | ❌ 前端未呼叫(只有註解) | ❌ | ✅ |
-| 15 | GET | `/api/v2/admin/contact-class/{id}` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
+| 13 | GET | `/api/v2/admin/contact-list` | **DONE** | ✅ | ❌ 前端未呼叫(只有註解) | ✅ 3 tests | ✅ |
+| 14 | GET | `/api/v2/admin/contact-list/{id}` | **DONE** | ✅ | ❌ 前端未呼叫(只有註解) | ✅ 2 tests | ✅ |
+| 15 | GET | `/api/v2/admin/contact-class/{id}` | **DONE** | ✅ | ✅ 是 | ✅ 4 tests | ✅ |
 | 16 | POST | `/api/v2/admin/contact-class` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
 | 17 | PUT/PATCH | `/api/v2/admin/contact-class/{id}` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
 | 18 | DELETE | `/api/v2/admin/contact-class` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
-| 19 | GET | `/api/v2/admin/contact/search/search-company` | NOT_IMPLEMENTED | ❌ | ✅ 是 | ❌ | ✅ |
+| 19 | GET | `/api/v2/admin/contact/search/search-company` | **DONE** | ✅ | ✅ 是 | ✅ 4 tests | ✅ |
 
 ### 2.2 逐端點詳細比對
 
@@ -217,23 +250,26 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 - Cache/Mail/Queue：無
 - **Test**：`tests/integration/auth-logout.test.ts`(6)
 
-#### #9 `GET /api/v2/admin/contact`
+#### #9 `GET /api/v2/admin/contact` — **DONE**
 - Laravel：`ContactController.php` (`index`)
-- Node：**無**
-- Auth：需要（規格：任何已登入使用者，無角色檢查——見 known-legacy-issues #2）
-- DB query：`SELECT * FROM contact ORDER BY created_at DESC`，`paginate(10)`
-- Response：`200` + 分頁 envelope
+- Node：`modules/contact/admin-contact.routes.ts` → `admin-contact.controller.ts::createAdminListContactHandler` → `admin-contact.service.ts::AdminContactService.listPage` → `contact.repository.ts::ContactRepository.countAll`/`findPage`（共用既有 `ContactRepository`）
+- Auth：`authenticate → requireAdmin`（正式決策，見 §10.13——不複製 known-legacy-issues #2 的「只登入即可」漏洞）
+- DB query：`SELECT * FROM contact ORDER BY created_at DESC LIMIT ? OFFSET ?` + `SELECT COUNT(*) ...`，`paginate(10)`
+- Response：`200` + 完整 Laravel 分頁 envelope（沿用 `laravel-pagination.ts`）
+- **Test**：`tests/integration/admin-contact.test.ts` 的 `GET /api/v2/admin/contact` 區塊(6)
 
-#### #10 `GET /api/v2/admin/contact/{id}`
+#### #10 `GET /api/v2/admin/contact/{id}` — **DONE**
 - Laravel：`ContactController.php` (`show`)
-- Node：**無**
-- DB query：`SELECT * FROM contact WHERE id=?` + `SELECT * FROM contact_list WHERE cid=?`（巢狀組裝）
-- Response：`200 {...contact, contactList:[...]}`；找不到 `404 {message}`
+- Node：`admin-contact.controller.ts::createAdminGetContactHandler` → `AdminContactService.getById` → `ContactRepository.findById` + `findContactListByContactId`（巢狀組裝）
+- DB query：`SELECT * FROM contact WHERE id=?` + `SELECT * FROM contact_list WHERE cid=?`
+- Response：`200 {...contact, contact_list:[...]}`——**巢狀 key 已依產品決策確認為 `contact_list`（snake_case），已同步修正 `openapi.yaml`（見 §1.4）**；找不到 `404 {message}`（純訊息，無 code/requestId）
+- **Test**：`tests/integration/admin-contact.test.ts` 的 `GET /api/v2/admin/contact/{id}` 區塊(4)，含「絕不出現 camelCase `contactList` key」的專門測試
 
-#### #11 `PUT/PATCH /api/v2/admin/contact/{id}` — **KNOWN_LEGACY_ISSUE，需先決策**
+#### #11 `PUT/PATCH /api/v2/admin/contact/{id}` — **DEFERRED / NOT_REQUIRED_BY_CURRENT_UI**（正式決策，2026-08-26）
 - Laravel：`ContactController.php` (`update`)——驗證規則要求完整報名資料，但實際只嘗試寫入不存在的 `name`/`no` 欄位，**生產環境等同無效更新**
-- Node：**無**
-- **這支在被排入實作前，必須先由需求方決定「這支 API 到底該更新什麼欄位」**（見 known-legacy-issues.md #1），照抄舊行為（做一個生產環境已知無效的 API）意義不大，但擅自改行為又可能破壞前端既有期待——見 §9 建議實作順序
+- Node：**無，且本階段正式決定不實作**
+- **決策理由**（不是「還沒排到」，是明確決定暫不做）：(1) frontend 呼叫端 0 call site，完全死碼；(2) 沒有任何編輯 UI；(3) legacy Laravel 行為本身是已知的 no-op/broken；(4) validation 規則／DB 實際寫入欄位／UI 需求三方互相衝突，無法可靠推導正確行為；(5) 現行產品功能完全不依賴這支 API
+- **不得**為了追求 19/19 而自行發明一套新行為。若未來真的需要「編輯報名資料」功能，應該以新的 frontend + backend contract 重新設計，而不是修補這支歷史遺留、從未真正動過的端點
 
 #### #12 `DELETE /api/v2/admin/contact`
 - Laravel：`ContactController.php` (`destroy`)
@@ -242,21 +278,24 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 - DB query：批次模式先查全部 id 是否存在，任何一個不存在則整批 404 不刪除；單值模式各自處理
 - **特殊規則**：**不可**自行加上級聯刪除 `contact_list`（見已知問題 #9，正式資料庫本就沒有生效外鍵）
 
-#### #13 `GET /api/v2/admin/contact-list`
+#### #13 `GET /api/v2/admin/contact-list` — **DONE**
 - Laravel：`ContactListController.php` (`index`)
-- Node：**無**
+- Node：新模組 `modules/contact-list/`（因為沒有對應的 public resource 可以掛靠）
 - DB query：`SELECT * FROM contact_list`（無過濾無分頁）
 - Response：`200 {data:[...]}`
-- **前端目前未呼叫**——`api/signedUpClass.ts` 底部只有註解列出這個路徑，沒有實際 export 的函式呼叫它
+- **前端目前未呼叫**——實作優先度最低，純為 parity 完整性補上
+- **Test**：`tests/integration/admin-contact-list.test.ts` 的 index 區塊(3)
 
-#### #14 `GET /api/v2/admin/contact-list/{id}`
-- 同上，Laravel：`ContactListController.php` (`show`)，Node：**無**，**前端未呼叫**
+#### #14 `GET /api/v2/admin/contact-list/{id}` — **DONE**
+- 同上，Laravel：`ContactListController.php` (`show`)，Node：`contact-list.repository.ts::findById`，**前端未呼叫**，404 為 `{message:"找不到資料"}`
+- **Test**：`tests/integration/admin-contact-list.test.ts` 的 show 區塊(2)
 
-#### #15 `GET /api/v2/admin/contact-class/{id}`
+#### #15 `GET /api/v2/admin/contact-class/{id}` — **DONE**
 - Laravel：`ContactClassController.php` (`show`)
-- Node：**無**
+- Node：`modules/contact-class/admin-contact-class.routes.ts` → `admin-contact-class.controller.ts` → `AdminContactClassService.getByIdActive` → `contact-class.repository.ts::ContactClassRepository.findByIdActive`（共用既有 repository class，新增方法）
 - DB query：`SELECT * FROM contact_class WHERE id=? AND del=0`
-- Response：`200` 全欄位；`404 {message}`
+- Response：`200` 全欄位；`404 {message}`（涵蓋「id 不存在」與「id 存在但 del=1」兩種情況，皆由同一條 SQL 的 `WHERE del=0` 過濾掉）
+- **Test**：`tests/integration/admin-contact-class.test.ts`(6，含 401/403/200/SQL 驗證/不存在/del=1 六種情境)
 
 #### #16 `POST /api/v2/admin/contact-class`
 - Laravel：`ContactClassController.php` (`store`)
@@ -273,10 +312,12 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 - Laravel：`ContactClassController.php` (`destroy`)——**真正硬刪除整列**（即使該表也有 `del` 欄位，語意不一致，見已知問題 #10）
 - Node：**無**
 
-#### #19 `GET /api/v2/admin/contact/search/search-company`
+#### #19 `GET /api/v2/admin/contact/search/search-company` — **DONE**
 - Laravel：`ContactController.php` (`searchCompany`)
-- Node：**無**
-- DB query：`SELECT * FROM contact WHERE company LIKE '%<keyword>%'`（參數化），`paginate(10)`
+- Node：`admin-contact.controller.ts::createAdminSearchContactHandler` → `AdminContactService.searchByCompany` → `ContactRepository.countByCompany`/`findByCompanyPage`
+- DB query：`SELECT * FROM contact WHERE company LIKE ? LIMIT ? OFFSET ?`（參數化），`paginate(10)`；**無 ORDER BY**——規格沒有記載排序，未自行假設(見 §1.4)
+- Response：`200` + 完整 Laravel 分頁 envelope
+- **Test**：`tests/integration/admin-contact.test.ts` 的 search-company 區塊(4)，含一則明確驗證萬用字元/類 SQL injection 字串只作為參數化值、不改變 SQL 結構的測試
 
 ---
 
@@ -291,17 +332,17 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | | password hash compatibility | bcrypt | ✅ `AuthService` 用 `bcryptjs` 比對/產生 bcrypt hash,格式驗證更嚴謹，register/login 皆已驗證(round-trip test) | **DONE(雙向)** |
 | | token invalidation | 無(Passport revoke 未使用) | ✅ 明確決策：不實作(方案 A)，同一 token 在 logout 後仍有效直到自然過期，已測試驗證此行為 | **DONE(決策為「不做」，非遺漏)** |
 | | auth middleware | 無 route 保護(part of legacy issue) | ✅ `authenticate.ts` 已實作,JWT 驗證完整，現在掛在 logout(唯一需要它的既有路由) | DONE(元件本身) |
-| | admin authorization | **完全沒有 is_admin 檢查** | `requireAdmin` middleware 已寫好但**未掛在任何路由**(因為 admin/* 都還沒實作)；已在 §10.13 正式記錄未來 admin/* 必須 `authenticate → requireAdmin → controller`，不得複製 legacy 的無檢查行為 | 待實作(產品方向已定案，見 §10.13) |
+| | admin authorization | **完全沒有 is_admin 檢查** | ✅ **已實作於 6 支唯讀端點**——`admin-contact.routes.ts`/`admin-contact-class.routes.ts`/`contact-list.routes.ts` 皆用 `router.use(authenticate, requireAdmin)`，401/403/200 三層皆有測試覆蓋；已在 §10.13 正式記錄未來所有 admin/* 都必須遵循同一模式，不得複製 legacy 的無檢查行為 | **DONE(已實作 6 支)/待擴及其餘 admin 端點** |
 | **Contact** | create | insert + 無 transaction | ✅ 已實作,且改用 transaction(見 §1.2) | **DONE** |
 | | ContactList nested create | 逐筆 insert,略過無 email 項目 | ✅ 已實作;略過邏輯保留但因 Zod 已要求 email,目前不可觸發(見 §1.2 validation parity 確認結果) | **DONE** |
-| | company search | LIKE 模糊搜尋 | 未實作(`admin/contact/search/search-company`) | NOT_IMPLEMENTED |
-| | admin Contact endpoints | 5 支(index/show/update/delete/search) | 全部未實作 | NOT_IMPLEMENTED |
+| | company search | LIKE 模糊搜尋 | ✅ 已實作(`admin/contact/search/search-company`)，無 ORDER BY(規格未記載) | **DONE** |
+| | admin Contact endpoints | 5 支(index/show/update/delete/search) | index/show/search 3 支已實作；update 正式 DEFERRED(§11.1 #11)；delete 未實作(下一批) | **3/5 DONE、1 DEFERRED、1 NOT_IMPLEMENTED** |
 | | mail notification | 硬編碼收件人,非同步 queue | ✅ 已實作(同步 Nodemailer);收件人改為 `RECIPIENT_EMAIL` 環境變數(修正已知問題 #11);**非同步 queue 未實作** | **DONE(同步)/PARTIAL(queue)** |
 | | transaction behavior | **無 transaction**(已知問題) | ✅ 已實作,`contact`+`contact_list` 包在同一 transaction,任一失敗即 rollback(intentional reliability improvement) | **DONE** |
-| **ContactClass** | CRUD | 5 支 | 僅 `index`(公開讀取)已實作,其餘 4 支(admin CRUD)未實作 | index: **DONE**;其餘 NOT_IMPLEMENTED |
+| **ContactClass** | CRUD | 5 支 | 公開 `index` 與 admin `show` 已實作(2/5)，admin 的 store/update/delete 未實作 | **2/5 DONE**;其餘 NOT_IMPLEMENTED(下一批) |
 | | soft delete / del flag | 讀取端點過濾 `del=0` | ✅ `index` 已過濾 `del=0`,與規格一致 | DONE(僅 index) |
 | | bulk delete | 硬刪除,批次模式 | 未實作 | NOT_IMPLEMENTED |
-| **ContactList** | index/show | 2 支,無過濾 | 未實作 | NOT_IMPLEMENTED |
+| **ContactList** | index/show | 2 支,無過濾 | ✅ 已實作(`modules/contact-list/`)，前端目前未使用 | **DONE** |
 | **ContactQuest** | index | 分頁,`del=0` 過濾 | ✅ 已實作,`del=0` 過濾 + 完整 Laravel 分頁 envelope | **DONE** |
 | **FAQ** | index | 4 欄位投影,24hr cache | ✅ 查詢/投影/排序已實作;❌ cache 未實作 | **DONE(API)/PARTIAL(cache)** |
 | | 24hr cache | file/array cache,無失效機制 | **Node 無任何 cache 套件依賴**,`faq.service.ts` 留有 TODO | NOT_IMPLEMENTED(基礎設施都沒有) |
@@ -338,22 +379,22 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | `pages/auth.vue` → `AuthApi.login` | `POST /auth/login` | ✅ 已實作 | ✅ 可用 |
 | `api/auth.ts` → `AuthApi.register`(**未被任何頁面呼叫**) | `POST /auth/register` | ✅ 已實作 | Backend 已可用，但前端仍是死碼(無 UI)且呼叫本身有既有 bug(`$http` 沒把 `data` 傳進去，見 4.3)——等未來真的要做註冊 UI 才需要一併修正 |
 | (無呼叫) | `POST /auth/logout` | ✅ 已實作(stateless) | Backend 已可用，但前端完全沒有登出 UI/呼叫路徑(見 §10.13)，目前無法透過前端觸發 |
-| `pages/admin/contact/index.vue` 等 → `getContact` | `GET /admin/contact` | 無 | ❌ 阻斷 |
-| `pages/admin/contact/[id].vue` → `getSingleContact` | `GET /admin/contact/{id}` | 無 | ❌ 阻斷 |
-| `updateContactInfo` | `PUT /admin/contact`（**缺少 `{id}`**） | 無 | ❌ 阻斷 + **request/response 格式不一致**(見 5.1) |
-| `deleteContactInfo` | `DELETE /admin/contact` | 無 | ❌ 阻斷 |
-| `searchContactInfo` | `GET /admin/contact/search/search-company` | 無 | ❌ 阻斷 |
-| `getSingleContactClass` | `GET /admin/contact-class/{id}` | 無 | ❌ 阻斷 |
-| `addContactClass` | `POST /admin/contact-class` | 無 | ❌ 阻斷 |
-| `UpdateContactClass` | `PUT /admin/contact-class/{id}` | 無 | ❌ 阻斷(此呼叫格式正確) |
-| `deleteSingleContactClass` | `DELETE /admin/contact-class` | 無 | ❌ 阻斷 |
+| `pages/admin/contact/index.vue` 等 → `getContact` | `GET /admin/contact` | ✅ 已實作 | ✅ 可用 |
+| `pages/admin/contact/[id].vue` → `getSingleContact` | `GET /admin/contact/{id}` | ✅ 已實作(`contact_list` key 已對齊前端) | ✅ 可用 |
+| `updateContactInfo` | `PUT /admin/contact`（**缺少 `{id}`，且 0 call site**） | 正式 DEFERRED(§11.1 #11) | 不適用——此呼叫從未被任何 UI 觸發，backend 暫不支援對現有功能零影響 |
+| `deleteContactInfo` | `DELETE /admin/contact` | 無(下一批) | ❌ 阻斷 |
+| `searchContactInfo` | `GET /admin/contact/search/search-company` | ✅ 已實作 | ✅ 可用 |
+| `getSingleContactClass` | `GET /admin/contact-class/{id}` | ✅ 已實作 | ✅ 可用 |
+| `addContactClass` | `POST /admin/contact-class` | 無(下一批) | ❌ 阻斷 |
+| `UpdateContactClass` | `PUT /admin/contact-class/{id}` | 無(下一批) | ❌ 阻斷(此呼叫格式正確) |
+| `deleteSingleContactClass` | `DELETE /admin/contact-class` | 無(下一批) | ❌ 阻斷 |
 | `FAQInfoApi.getContact`(**未被任何頁面呼叫**) | `GET /admin/faq`（**此路徑不存在於 19 支規格中**） | 無 | 死碼,非缺口(見 5.3) |
-| (無呼叫) | `GET /admin/contact-list` | 無 | 前端未使用,非阻斷 |
-| (無呼叫) | `GET /admin/contact-list/{id}` | 無 | 前端未使用,非阻斷 |
+| (無呼叫) | `GET /admin/contact-list` | ✅ 已實作 | 前端未使用,非阻斷 |
+| (無呼叫) | `GET /admin/contact-list/{id}` | ✅ 已實作 | 前端未使用,非阻斷 |
 
 ### 4.2 Frontend 使用中但 Backend 尚未實作的 endpoint
 
-第四階段實作後，**10 / 19 支**前端有實際呼叫的端點仍缺 backend 實作(第三階段後剩 11 支，本階段補上 `POST /contact`)。剩餘缺口全部集中在**整個後台管理(`admin/*`)**——首頁 SEO meta、FAQ 頁、報名表單的下拉選單資料與「送出」流程現在都能正確運作，使用者可以完整走完報名流程，但後台管理仍完全無法使用。
+第六階段（Admin Batch 1）實作後，**4 / 19 支**前端有實際呼叫的端點仍缺 backend 實作(第四階段後剩 10 支，本階段補上 `admin/contact` 的 index/show/search 與 `admin/contact-class` 的 show，共 4 支)。剩餘缺口是 **`DELETE admin/contact`、`POST admin/contact-class`、`PUT admin/contact-class/{id}`、`DELETE admin/contact-class`**——後台現在可以「查看」列表、單筆detail、搜尋，但「新增課程分類」「編輯課程分類」「刪除報名資料」「刪除課程分類」都還不能用，留給下一批。
 
 ### 4.3 Request/Response 格式不一致
 
@@ -391,6 +432,17 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 - **response shape**：`addContactInfo` 與呼叫端(`SignUpClassForm.vue::addSignedUpClass`)只檢查回傳值是否 truthy，不讀取 `data` 內任何具體欄位，Node 回傳的 `{message, data}` 形狀完全相容
 - **錯誤處理**：前端失敗分支 `alert(err.data.message)` 只讀取 `message` 字串顯示，不比對確切文字內容，因此 §1.2 提到的「驗證錯誤訊息非逐字重現 Laravel 原文」不影響前端功能
 - **frontend 不需要同步修改**：確認無誤，**未發現任何 mismatch**
+
+### 4.8 第六階段 Admin Batch 1（6 支唯讀端點）frontend 相容性檢查結果
+
+靜態重新比對 `pages/admin/contact/index.vue`、`pages/admin/contact/[id].vue`、
+`pages/admin/contact/class/[id].vue`、相關 `api/signedUpClass.ts` 函式：
+
+- **endpoint path**：`GET admin/contact`、`GET admin/contact/{id}`、`GET admin/contact/search/search-company`、`GET admin/contact-class/{id}` 四支皆一致
+- **query**：`page`/`company` 參數名稱與型別一致
+- **response**：`ContactData`/`ContactClass` 型別逐欄位比對一致；**`GET admin/contact/{id}` 的 `contact_list` 巢狀 key 現在完全對齊**（這正是本批修正的項目——修正前若照 openapi 原文實作會導致 `[id].vue` 的「參加人員名單」表格靜默空白）
+- **pagination**：與 `admin/contact` 索引頁的分頁邏輯（`currentPage`/`displayedPages`）相容
+- **frontend 不需要同步修改**：確認無誤，**未發現任何新的 mismatch**（`updateContactInfo` 的既有問題已於 §11.1 #11 記錄為死碼，非本批新發現）
 
 ---
 
@@ -432,8 +484,8 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | 測試類型 | 現況 |
 |---|---|
 | Unit tests | `auth.service.test.ts`(10，含新增 register()/30d exp 測試)、`legacy-validation-error.test.ts`(2)、`laravel-pagination.test.ts`(5) |
-| Integration tests | `auth-login.test.ts`(13)、`auth-register.test.ts`(11，新增)、`auth-logout.test.ts`(6，新增)、`seo.test.ts`(5)、`faq.test.ts`(4)、`contact-class.test.ts`(5)、`contact-quest.test.ts`(9)、`contact.test.ts`(14)+ 基礎設施類測試(`env`(23，含新增 JWT_EXPIRES_IN allowlist 測試)/`error-handler`/`graceful-shutdown`/`health`/`not-found`/`ready`/`validate-request`) |
-| **完全缺少測試的 API** | **11 / 19 支**（全部 9 支 `admin/*` — `register`/`logout` 本階段補上測試，原本 13 支） |
+| Integration tests | `auth-login.test.ts`(13)、`auth-register.test.ts`(11)、`auth-logout.test.ts`(6)、`seo.test.ts`(5)、`faq.test.ts`(4)、`contact-class.test.ts`(5)、`contact-quest.test.ts`(9)、`contact.test.ts`(14)、`admin-contact.test.ts`(20，新增)、`admin-contact-class.test.ts`(6，新增)、`admin-contact-list.test.ts`(9，新增)+ 基礎設施類測試(`env`(23)/`error-handler`/`graceful-shutdown`/`health`/`not-found`/`ready`/`validate-request`) |
+| **完全缺少測試的 API** | **5 / 19 支**（`DELETE admin/contact`、`POST admin/contact-class`、`PUT admin/contact-class/{id}`、`DELETE admin/contact-class` 四支未實作 + `PUT admin/contact/{id}` 正式 DEFERRED 不需要測試，原本 11 支） |
 | Migration parity tests | 無——`backend/scripts/verify-schema.ts` 存在但只驗證 schema 結構,不是「舊資料庫資料 vs 新程式行為」的 parity test |
 | Frontend/backend contract tests | 無——目前沒有任何跨 repo 的 contract test(例如用 `openapi.yaml` 對前端呼叫做 schema 驗證) |
 
@@ -472,19 +524,19 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 
 | # | 條件 | 目前狀態 |
 |---|---|---|
-| 1 | frontend 使用中的 API 全部 DONE | ⚠️ 進行中：10/19 前端使用中的端點仍是 NOT_IMPLEMENTED(全部是 `admin/*`；`register`/`logout` 的 backend 已 DONE，但前端本來就沒有呼叫它們，見下方第 2 項的說明) |
-| 2 | auth flow 完整(login/register/logout 皆可用) | ⚠️ **backend API 本身 DONE**(login/register/logout 三支都完整實作+測試)，**但 auth flow 整體仍不算 production-ready**——frontend 完全沒跟上：無登出 UI、`AuthApi.register` 是死碼、Authorization header 非動態讀取、401 不會清 token/導頁、`/admin/*` 無 route guard(完整清單見 §10.13)。**這是本階段任務明確要求不要虛報的項目。** |
-| 3 | admin authorization 確認 | ⚠️ 產品決策已在 §10.13 正式記錄(未來 admin/* 必須 `authenticate → requireAdmin`)，但**尚未實作**(admin/* 整批都還沒開始) |
+| 1 | frontend 使用中的 API 全部 DONE | ⚠️ 進行中：4/19 前端使用中的端點仍是 NOT_IMPLEMENTED(`DELETE admin/contact`、`POST/PUT/DELETE admin/contact-class`；原本 10 支，本階段完成 4 支：`admin/contact` 的 index/show/search + `admin/contact-class` 的 show) |
+| 2 | auth flow 完整(login/register/logout 皆可用) | ⚠️ backend API 本身 DONE，**但 auth flow 整體仍不算 production-ready**——frontend 完全沒跟上(完整清單見 §10.13)。**維持上一輪的保留，未因本批而改善或惡化。** |
+| 3 | admin authorization 確認 | ⚠️ **已實作於 6 支唯讀端點**(`authenticate → requireAdmin`，401/403/200 三層皆有測試)，但其餘 5 支 admin 端點(4 支未實作 + 1 支 DEFERRED)尚未套用——**部分達成，非全部** |
 | 4 | database schema compatible | ✅ 已完成(`backend/migrations/` 與 database-schema.md 一致，本階段也未修改 schema) |
 | 5 | mail confirmed | ⚠️ 進行中：`POST /contact` 的同步 Mail 已 DONE,但原始模板內容/排版是重建品非逐字複製(已知缺口，見 §1.2);其餘尚無其他端點需要 mail |
 | 6 | queue confirmed | ❌ 刻意 deferred(本階段任務範圍明確排除,`POST /contact` 用同步寄信) |
 | 7 | cache confirmed | ❌ FAQ 24hr cache 仍未實作(API 行為本身已 DONE) |
 | 8 | CORS confirmed | ⚠️ 機制已就緒,但正式 origin 尚未設定 |
-| 9 | backend tests passed | ✅ 120/120 全數通過(本階段從 79 增加到 120),覆蓋率提升到 8/19 端點 |
+| 9 | backend tests passed | ✅ 155/155 全數通過(本階段從 120 增加到 155),覆蓋率提升到 14/19 端點(12 完全 DONE + 2 帶已知缺口) |
 | 10 | frontend build passed | ✅ `npm run build` 通過(與 API 是否可用無關,純建置檢查；本階段未修改 frontend) |
 | 11 | staging integration test passed | ❌ 尚未進行(backend 功能仍不足,無法有意義地跑 staging 測試) |
 
-**目前 11 項中 3 項達成、4 項進行中(schema/build/測試綠燈已達成；auth API/admin 授權決策/mail 皆有進展但帶明確保留)，其餘 4 項仍未達成。距離可以考慮 cutover 仍早期，核心阻礙是整個 `admin/*`(9/19 端點,47%)尚未開始實作，以及 frontend 完全沒有跟上這批 auth API 的變化(見 §10.13 的 frontend 待辦清單)。**
+**目前 11 項中 3 項達成、5 項進行中(schema/build/測試綠燈已達成；frontend API 覆蓋率、admin 授權、mail 皆有實質進展但帶明確保留)，其餘 3 項仍未達成。距離可以考慮 cutover 已比上一輪接近，核心阻礙收斂到：4 支 admin 寫入端點(下一批)、`PUT admin/contact/{id}` 的產品決策(已定案為不做)、以及 frontend 完全沒有跟上這幾批後端變化(見 §10.13 的 frontend 待辦清單)。**
 
 ---
 
@@ -1025,6 +1077,18 @@ admin JWT(isAdmin:true)          → 依端點正常進入 controller(200/201/�
 6. Mail 模板原始內容/排版仍是重建品，非逐字複製(已知缺口)
 7. Staging integration test 完全沒有進行過
 8. 若 `PUT /admin/contact/{id}` 決策後選擇「新增全新的正確行為」而非「維持 legacy no-op」，需要**同時**新增前端編輯 UI(目前完全不存在)，這是一筆跨 stack 的工作，不只是後端 API
+
+### 11.9 實作結果（Admin Batch 1，2026-08-26）
+
+> §11.1–§11.8 是分析階段的紀錄，保留原樣供追溯；以下記錄 Batch 1 實際採用的決策與實作結果。
+
+**已完成（DONE）**：#9 `GET admin/contact`、#10 `GET admin/contact/{id}`、#13 `GET admin/contact-list`、#14 `GET admin/contact-list/{id}`、#15 `GET admin/contact-class/{id}`、#19 `GET admin/contact/search/search-company`——共 6 支，全部套用 `authenticate → requireAdmin`，155 個測試全過（含每支端點的 401/403/200 三層授權測試）。詳細實作紀錄見 §1.4，逐端點的最終狀態已同步更新到 §2.1/§2.2。
+
+**`contact_list` contract correction**：依產品決策正式採用，`openapi.yaml` 已同步修正（見 §1.4），不是「暫時繞過」而是文件本身的永久更正。
+
+**`PUT /admin/contact/{id}`（#11）最終決策**：**DEFERRED / NOT_REQUIRED_BY_CURRENT_UI**，正式定案，不算「忘記實作」的 NOT_IMPLEMENTED，也未被排入 Batch 2/3 的任何排程。若未來業務需求變化，需要重新走一次需求確認流程（含前端編輯 UI 設計），而不是直接「補上」這支端點。
+
+**尚未排入本批（留給 Batch 2/3）**：#12 `DELETE admin/contact`、#16 `POST admin/contact-class`、#17 `PUT admin/contact-class/{id}`、#18 `DELETE admin/contact-class`——依 §11.5 原定的 Batch 2/3 順序，下次可直接接續。
 
 ---
 

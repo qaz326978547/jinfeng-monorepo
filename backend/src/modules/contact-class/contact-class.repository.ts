@@ -19,4 +19,13 @@ export class ContactClassRepository {
     );
     return rows;
   }
+
+  /** Mirrors legacy ContactClassController@show (used by GET /admin/contact-class/{id}). */
+  async findByIdActive(id: number): Promise<ContactClassRow | null> {
+    const [rows] = await this.pool.query<ContactClassRow[]>(
+      'SELECT * FROM contact_class WHERE id = ? AND del = 0',
+      [id],
+    );
+    return rows[0] ?? null;
+  }
 }
