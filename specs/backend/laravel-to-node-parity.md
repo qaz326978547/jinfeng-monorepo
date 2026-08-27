@@ -244,7 +244,18 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 - Response：`200` + JSON array（只 4 欄位投影），與 `frontend/api/interface/signedUpClass.ts` 的 `FAQData[]` 一致
 - **Cache：仍未實作**——`faq.service.ts` 內留有 `TODO(parity): restore FAQ 24-hour cache before production cutover.` 註記；每次呼叫都直接打 DB，功能正確但非功能面(效能/production parity)尚未完成
 - Mail/Queue：無
-- **Test**：`tests/integration/faq.test.ts`(4)
+- **Test**：`tests/integration/faq.test.ts`(7，含 3 支 admin 寫入後立即反映在 public GET 的整合測試)
+
+#### #5b `GET/POST/PUT/DELETE /api/v2/admin/faq` — **Admin management DONE**
+- **New Node/Admin feature, not legacy parity requirement.** 沒有已確認的 Laravel admin FAQ API——`frontend/api/faq.ts` 的 `FAQInfoApi.getContact()` 呼叫 `/admin/faq`，但這是死碼（未被任何頁面呼叫），且該路徑不存在於本文件已確認的 19 支規格中（見 §5.3）。本批純粹是為了讓 `/admin/contact/contact_quest` 後台頁面能管理 `faq` 表而新增的功能，不是還原任何 Laravel 行為。
+- Node：`src/modules/faq/admin-faq.routes.ts` → `admin-faq.controller.ts` → `admin-faq.service.ts` → 共用 `faq.repository.ts::FaqRepository`(新增 `findAllForAdmin`/`findById`/`create`/`update`/`deleteByIds`)
+- Authorization：`authenticate` → `requireAdmin`（掛在 router 層，同 `admin-contact-class` 的作法）
+- `GET /admin/faq`：與 public 完全相同的 4 欄位投影/`no DESC`排序（不過濾 `del`），envelope 為 `{ data: [...] }`——這是全新 envelope（既有 admin list 只有 `admin/contact` 的 Laravel 分頁格式可參考，且 `admin/contact-class` 根本沒有 index endpoint），刻意選用簡單陣列 envelope 而非套用分頁格式
+- `POST /admin/faq`：`name`/`info`/`no` 皆為必填（Zod + `formRequestErrorFormat`），INSERT 不寫入 `del`，交給 DB 欄位預設值（`faq.del` 實際上是 `DEFAULT NULL`，非 `contact_class.del` 的 `DEFAULT 0`——已在 migration 中確認，寫入邏輯本來就不受影響因為 public GET 從不過濾 `del`）
+- `PUT /admin/faq/{id}`：先查存在（`findById`，不過濾 `del`，因為 public 端本來就不過濾），不存在回 404 `{message:'找不到資料'}`；只允許更新 `name`/`info`/`no`，永不寫 `id`/`del`
+- `DELETE /admin/faq`：**硬刪除**（真正 `DELETE FROM faq`，非 `del=1`）——比照 `contact_class` 的既有實作（`known-legacy-issues.md` #10 將 `contact_class`／`contact_quest`／`seo`／`faq` 歸為同一類「`del` 旗標與硬刪除 API 並存」的表，且沒有任何已確認的 legacy FAQ admin API 與此牴觸）；existence check + delete 包在同一個 transaction，批次刪除具原子性；共用 `deleteByIdsSchema`(`{ids: number | number[]}`)
+- **Cache/資料新鮮度**：目前 FAQ 完全沒有實作任何 cache（見上方 #5 的 `TODO(parity)`），所以 admin 寫入後，下一次 public `GET /api/v2/faq` 立即可見，不需要額外的 cache invalidation 邏輯——`tests/integration/faq.test.ts` 新增 3 支整合測試直接驗證這個行為（新增/修改/刪除後 public GET 立即反映）
+- **Test**：`tests/integration/admin-faq.test.ts`(32：401/403/200/ordering/empty list、create success/validation ×4/預設 del 行為、update success/only-allowed-fields/404/validation/bad id、delete single/batch/atomic 404/scalar 404/hard-delete 確認/invalid payload ×5)
 
 #### #6 `POST /api/v2/auth/login` — **DONE**
 - Laravel：`AuthController.php` (`login`)
