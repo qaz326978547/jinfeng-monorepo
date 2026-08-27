@@ -45,6 +45,14 @@ export class ContactRepository {
    * one transaction (intentional reliability improvement over the legacy
    * no-transaction behavior, see known-legacy-issues.md #8). `del`/`no` are
    * left to their table DEFAULT 0, never set from the request.
+   *
+   * `created_at`/`updated_at` are explicitly set to `NOW()` on both inserts —
+   * these columns have no DB-level default/trigger (confirmed via
+   * known-legacy-issues.md / 005_create_triggers.sql: 0 triggers), unlike
+   * legacy Eloquent which auto-manages timestamps on every model save.
+   * Leaving them unset produced NULL rows that sorted to the very last page
+   * under `findPage()`'s `ORDER BY created_at DESC` (MySQL treats NULL as
+   * the lowest value), making every new submission invisible on admin page 1.
    */
   async createWithContactList(input: CreateContactRequest): Promise<ContactRow> {
     return withTransaction(this.pool, async (connection) => {
@@ -59,7 +67,7 @@ export class ContactRepository {
     input: CreateContactRequest,
   ): Promise<number> {
     const [result] = await connection.query<ResultSetHeader>(
-      'INSERT INTO contact (class, quest, company, tel, num, last5, ticket, ticket_name, ticket_no, ticket_address, `from`, suggest_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO contact (class, quest, company, tel, num, last5, ticket, ticket_name, ticket_no, ticket_address, `from`, suggest_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())',
       [
         input.class,
         input.quest,
@@ -92,7 +100,7 @@ export class ContactRepository {
 
     for (const item of itemsWithEmail) {
       await connection.query(
-        'INSERT INTO contact_list (name, email, job, cel, cid) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO contact_list (name, email, job, cel, cid, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
         [item.name, item.email, item.job ?? null, item.cel, contactId],
       );
     }

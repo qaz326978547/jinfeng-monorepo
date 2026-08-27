@@ -51,10 +51,16 @@ export class ContactClassRepository {
     return row;
   }
 
-  /** Mirrors legacy ContactClassController@store: `del` is left to its table DEFAULT 0. */
+  /**
+   * Mirrors legacy ContactClassController@store: `del` is left to its table
+   * DEFAULT 0. `created_at`/`updated_at` are explicitly set to `NOW()` —
+   * these columns have no DB-level default/trigger, unlike legacy Eloquent
+   * which auto-manages timestamps on every model save (see the same fix in
+   * contact.repository.ts::insertContact for the bug this caused elsewhere).
+   */
   async create(name: string, no: number): Promise<ContactClassRow> {
     const [result] = await this.pool.query<ResultSetHeader>(
-      'INSERT INTO contact_class (name, no) VALUES (?, ?)',
+      'INSERT INTO contact_class (name, no, created_at, updated_at) VALUES (?, ?, NOW(), NOW())',
       [name, no],
     );
     return this.findByIdOrThrow(result.insertId);

@@ -159,7 +159,9 @@ describe('POST /api/v2/admin/contact-class', () => {
     const insertCall = (queryFn.mock.calls as [string, unknown[]?][]).find(([sql]) =>
       sql.startsWith('INSERT INTO contact_class'),
     );
-    expect(insertCall?.[0]).toBe('INSERT INTO contact_class (name, no) VALUES (?, ?)');
+    expect(insertCall?.[0]).toBe(
+      'INSERT INTO contact_class (name, no, created_at, updated_at) VALUES (?, ?, NOW(), NOW())',
+    );
     expect(insertCall?.[1]).toEqual(['新分類', 20]);
   });
 
