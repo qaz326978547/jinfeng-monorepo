@@ -181,8 +181,8 @@ CORS_ALLOWED_ORIGINS=https://laborservice5690.com
 
 ✅ 兩邊程式碼都正確處理 `NODE_ENV`，且**都要求正式環境明確設為 `production`**（不能只是「不是 development」就當作正式環境）：
 
-- Backend：`env.ts` 用 `z.enum(['development','test','production']).default('development')`——Zeabur 若忘記設定，會**靜默 fallback 成 `development`**，不會啟動失敗。這雖然不影響大部分業務邏輯（沒有 `if (NODE_ENV==='development')` 的功能分支），但會讓 log level 等行為偏離預期。**必須在 Zeabur 明確設定，不能依賴 default。**
-- Frontend：`usePublicStore.ts`、`middleware/redirect-www.global.ts`、`server/middleware/blockBadPaths.ts` 都有 `NODE_ENV==='production'`/`!== 'production'` 的分支判斷，**忘記設定會讓 API base URL 回退到 `http://127.0.0.1:9001`（開發用的本機位址）、www 重導向與 bad-path 阻擋整組失效**——這比 backend 的情況嚴重得多，是真正的功能性阻斷項，不只是觀測面的差異。
+- Backend：`env.ts` 用 `z.enum(['development','test','production']).default('development')`——Zeabur 若忘記設定，會**靜默 fallback 成 `development`**，不會啟動失敗。這雖然不影響大部分業務邏輯（沒有 `if (NODE_ENV==='development')` 的功能分支），但會讓 log level 等行為偏離預期。**必須在 Zeabur 明確設定，不能依賴 default。** ⚠️ **2026-08-27 新發現**：`scripts/migrate.ts` 也依賴 `NODE_ENV`——`NODE_ENV=production` 時會**拒絕**執行 migration，除非額外帶 `--allow-production` 旗標（保護機制，避免不小心對正式 DB 跑 migration）。這代表 production 首次部署／未來的 schema migration，都必須記得帶這個旗標，否則會誤以為 migration 失敗，細節與同樣適用於 staging 的說明見 `specs/backend/staging-deployment-readiness.md` §1.2。
+- Frontend：**2026-08-27 已更正**——`usePublicStore.ts` 的 `apiBaseUrl` 已不再依賴 `NODE_ENV` 分支（見 `staging-deployment-readiness.md`/上一批 Frontend Runtime Config Hardening 的紀錄），改用 `runtimeConfig.public.apiBaseUrl`，由 `NUXT_PUBLIC_API_BASE_URL` 直接覆蓋，與 `NODE_ENV` 無關。`middleware/redirect-www.global.ts`、`server/middleware/blockBadPaths.ts` 這兩處**仍然**依賴 `NODE_ENV==='production'`/`!=='production'` 的分支判斷（本批未變動），忘記設定 `NODE_ENV=production` 會讓 www 重導向與 bad-path 阻擋整組失效——這兩個仍是需要在 Zeabur 明確設定 `NODE_ENV=production` 的理由，但已經不再牽涉 API base URL。
 
 ---
 
@@ -266,3 +266,9 @@ CORS_ALLOWED_ORIGINS=https://laborservice5690.com
 - **Zeabur production 本身未經任何驗證**——本批的所有測試（build、production-mode 本機 server、runtime env override）都在**本機**執行，**沒有一項是對 Zeabur 實際環境的驗證**。
 - **staging 環境未經任何測試**——本批未涉及。
 - 以上三項在 `laravel-to-node-parity.md` 的同步更新中，**明確不標記為 DONE**，見該文件的對應章節。
+
+---
+
+## 12. Staging Deployment Readiness（2026-08-27，另開文件）
+
+**staging 環境的部署 readiness 分析（backend/frontend Zeabur config、staging 專屬 env matrix、staging CORS、staging DB 規劃、mail safety、seed 策略、E2E checklist、rollback plan、production blockers 重新分類）已獨立成專屬文件：`specs/backend/staging-deployment-readiness.md`。** 本文件（production-env-readiness.md）維持只涵蓋 **production** 的分析，兩份文件的建議值不同，不要混用（例如：production 的 `CORS_ALLOWED_ORIGINS` 是 `https://laborservice5690.com`，staging 是完全不同的 `https://<frontend-staging-domain>`；DB/JWT_SECRET/mail 亦然，兩邊必須互相獨立）。

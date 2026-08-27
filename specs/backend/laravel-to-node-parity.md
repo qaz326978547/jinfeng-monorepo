@@ -575,15 +575,17 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | 2 | auth flow 完整(login/register/logout 皆可用) | ✅ **達成**——backend API DONE，frontend auth UX 已於 2026-08-27 跟上：login token persistence、axios 動態 Authorization header、logout UI、401 自動清 token + 導頁、`/admin/*` route guard 皆已實作（見 §10.14）。register 仍無前端 UI，但這是刻意保留的產品決策（見 §10.14），並非缺口——現有 UI 從未依賴 register。**admin frontend authentication UX 一併達成。** |
 | 3 | admin authorization 確認 | ✅ **達成**——所有已實作的 admin 端點(10 支：6 支唯讀 + 4 支寫入)全部套用 `authenticate → requireAdmin`，401/403/200 三層皆有測試覆蓋；唯一未套用的是正式 DEFERRED、根本沒有實作的 `PUT admin/contact/{id}` |
 | 4 | database schema compatible | ✅ 已完成(`backend/migrations/` 與 database-schema.md 一致，本階段也未修改 schema) |
-| 5 | mail confirmed | ⚠️ 進行中：`POST /contact` 的同步 Mail 已 DONE,但原始模板內容/排版是重建品非逐字複製(已知缺口，見 §1.2);其餘尚無其他端點需要 mail |
-| 6 | queue confirmed | ❌ 刻意 deferred(本階段任務範圍明確排除,`POST /contact` 用同步寄信) |
-| 7 | cache confirmed | ❌ FAQ 24hr cache 仍未實作(API 行為本身已 DONE) |
+| 5 | mail confirmed | ⚠️ 進行中：`POST /contact` 的同步 Mail 已 DONE,但原始模板內容/排版是重建品非逐字複製(已知缺口，見 §1.2)。**2026-08-27 重新評估**：模板差異已重新分類為 `DEFERRED_NON_BLOCKING`（不影響資料正確性，只影響內部收件人看到的排版），**不再視為 cutover blocker**，細節與唯一待確認例外（內部信箱是否有格式依賴的自動化規則）見 `specs/backend/staging-deployment-readiness.md` §10.3 |
+| 6 | queue confirmed | ⚠️ 刻意 deferred(本階段任務範圍明確排除,`POST /contact` 用同步寄信)。**2026-08-27 重新評估**：從 observable behavior/data correctness/reliability/traffic scale 四個角度重新判斷，已重新分類為 `DEFERRED_NON_BLOCKING`——DB 寫入與寄信失敗完全解耦、資料正確性不受影響，唯一風險是 SMTP 緩慢時的回應延遲（低流量場景下影響有限），**不再視為 cutover blocker**，細節見 `staging-deployment-readiness.md` §10.2 |
+| 7 | cache confirmed | ⚠️ FAQ 24hr cache 仍未實作(API 行為本身已 DONE)。**2026-08-27 重新評估**：無 cache 在資料新鮮度上其實優於 legacy 的 24hr 過時窗口，且此頁面流量規模不構成 DB 負載風險，已重新分類為 `DEFERRED_NON_BLOCKING`，**不再視為 cutover blocker**，細節見 `staging-deployment-readiness.md` §10.1 |
 | 8 | CORS confirmed | ⚠️ **仍未達成，維持保留**——機制已就緒且已於 2026-08-27 完成完整的 code/config readiness 稽核（見 `specs/backend/production-env-readiness.md`，含正式 origin 清單建議、wildcard+credentials 檢查、www 重導向分析），但**尚未在 Zeabur 實際設定** `CORS_ALLOWED_ORIGINS`，也尚未經過 production 實測；readiness 稽核不等於 production verification，不得視為達成 |
 | 9 | backend tests passed | ✅ 193/193 全數通過(本階段從 155 增加到 193),覆蓋率提升到 18/19 端點(16 完全 DONE + 2 帶已知缺口) |
 | 10 | frontend build passed | ✅ `npm run build` 通過(與 API 是否可用無關,純建置檢查；本階段未修改 frontend) |
 | 11 | staging integration test passed | ❌ 尚未進行(backend 功能仍不足,無法有意義地跑 staging 測試) |
 
 **目前 11 項中 6 項達成、2 項進行中(schema/build/測試綠燈、frontend API 覆蓋率、admin 授權、auth flow 皆已達成；mail/CORS 有進展但帶明確保留)，其餘 3 項仍未達成(queue/cache/staging test)。⚠️ 6/11 達成**不代表 production cutover 已 ready**——`queue confirmed`、`cache confirmed`、`staging integration test passed` 三項完全沒有進展，這是本輪明確要求不能因為 frontend auth UX 完成就一併虛報的項目。核心剩餘阻礙：FAQ cache、Contact Queue、CORS 正式 origin、production 環境變數驗證、Mail 模板逐字複製、staging test。**
+
+**2026-08-27 補充——Monorepo Staging Deployment Readiness**：`queue confirmed`/`cache confirmed`/`mail confirmed` 這三項的「未達成」狀態，已依 observable behavior / data correctness / reliability / traffic scale 四個角度重新評估並**重新分類**（不是重新實作，程式碼行為完全沒變），三項皆判定為 `DEFERRED_NON_BLOCKING`——即在目前功能 parity 已正確的前提下，這些是 cutover **之後**可以再處理的 hardening/優化項，不是擋住上線的真正 blocker，完整推理見 `specs/backend/staging-deployment-readiness.md` §10.1/§10.2/§10.3。**這不代表這三項變成 DONE**（FAQ cache、Contact Queue、逐字模板都還是沒有實作），只是判斷它們不應該再被算進「production 是否 ready」的阻斷清單。真正仍然阻斷 cutover 的是：CORS 正式 origin 尚未在 Zeabur 設定、staging integration test 完全沒有執行過（`staging-deployment-readiness.md` 已完成 readiness 分析與 E2E checklist 規劃，但**尚未有 staging 環境可供實際測試**）、以及一系列只能在 Zeabur 平台本身確認的項目（Zeabur MySQL SSL 需求、`PORT` 注入行為、frontend 自動偵測部署是否真的成功）。**上述皆為分析/規劃結果，不是 staging 或 production 已驗證，不得標記為 DONE。**
 
 **2026-08-27 補充**：CORS 與 production 環境變數已完成完整的 code/config readiness 稽核，詳見 `specs/backend/production-env-readiness.md`（backend/frontend env matrix、CORS origin 清單、Zeabur service env checklist、deployment blockers、manual verification steps）。**這些都只是程式碼/設定面的稽核結果，不是 production 已驗證——CORS/mail/env 在此列表中的狀態不因此稽核而改變為達成。**
 
