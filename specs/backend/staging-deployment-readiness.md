@@ -173,9 +173,9 @@ npm run db:verify
 
 ## 6. Seed / Test Data Strategy
 
-### 6.1 現況：四張表完全沒有寫入 API
+### 6.1 現況：`seo`/`contact_quest` 仍沒有寫入 API；`faq` 已補上
 
-盤點下方六類測試資料時發現一個重要的既有限制——**`seo`、`faq`、`contact_quest` 三張表目前完全沒有任何 `POST`/`PUT`/`DELETE` API**（`src/modules/{seo,faq,contact-quest}/*.routes.ts` 都只有 `router.get('/', ...)`），這是 Node 遷移目前的既有範圍（原始 Laravel 應該有對應的後台 CRUD，但尚未排入這次遷移的任何 batch，`laravel-to-node-parity.md` 目前也沒有把這幾支列為待實作項目——**這件事本身值得在 §10 額外記一筆，但不屬於本次 staging readiness 的範圍去擴大**）。這代表這三張表**唯一**的資料建立方式是直接對資料庫下 SQL，不是本次要新增/實作的功能。
+盤點下方六類測試資料時原本發現一個既有限制——**`seo`、`faq`、`contact_quest` 三張表完全沒有任何 `POST`/`PUT`/`DELETE` API**（`src/modules/{seo,faq,contact-quest}/*.routes.ts` 都只有 `router.get('/', ...)`）。**2026-08-28 更新：`faq` 已補上完整 admin CRUD**（`GET/POST/PUT/DELETE /api/v2/admin/faq`，見 `laravel-to-node-parity.md` §5b、`QA測試.md` §5.5b）——這是為了讓 `/admin/contact/contact_quest` 後台頁面能管理 FAQ 而新增的**新 Node/Admin 功能**，不是 Laravel legacy parity 補完。`seo`／`contact_quest` 仍維持原狀，這兩張表**唯一**的資料建立方式仍是直接對資料庫下 SQL，且仍不屬於本次遷移排定範圍。
 
 | 測試資料 | 建立方式 | 現況 |
 |---|---|---|
@@ -184,7 +184,7 @@ npm run db:verify
 | contact_class | `POST /api/v2/admin/contact-class`（需先有 admin token） | ✅ 有 API |
 | contact_quest | ❌ **沒有寫入 API** | 只能直接 SQL INSERT |
 | seo | ❌ **沒有寫入 API** | 只能直接 SQL INSERT |
-| faq | ❌ **沒有寫入 API** | 只能直接 SQL INSERT |
+| faq | ✅ **已有 admin API**（2026-08-28 新增） | `POST /api/v2/admin/faq`（需先有 admin token），見 `QA測試.md` §5.5b |
 
 ### 6.2 最小 synthetic seed 規劃（規劃，本批不實作）
 
@@ -202,13 +202,18 @@ VALUES (0, 1, 'test', '[STAGING] 測試 SEO 資料', '[STAGING] 測試標題',
         '[STAGING] 測試描述文字', '/staging-test', 'article', '測試,staging',
         '', '', 0, NOW(), NOW());
 
+-- faq 已不需要走這條路——2026-08-28 起可改用 POST /api/v2/admin/faq（見 §6.1）：
+-- curl -X POST http://localhost:8080/api/v2/admin/faq -H "Authorization: Bearer <admin token>" \
+--   -H "Content-Type: application/json" \
+--   -d '{"name":"[STAGING] 測試 FAQ 標題","info":"[STAGING] 測試 FAQ 內容","no":1}'
+-- 以下 SQL 仍保留給沒有 admin token、或想繞過應用層驗證的情境參考：
 INSERT INTO faq (class_id, name, date, info, created_at, updated_at)
 VALUES (0, '[STAGING] 測試 FAQ 標題', NOW(), '[STAGING] 測試 FAQ 內容', NOW(), NOW());
 ```
 
 執行方式規劃：`docker compose exec mysql mysql -u jinfeng -p jinfeng_local < seeds/staging-seed.sql`（本機）或透過 Zeabur MySQL 的連線資訊用相同方式對 staging DB 執行——**同樣適用 §4.4 的「不得對 production 執行」原則**，seed 腳本檔名/內容都用 `[STAGING]` 前綴標註，降低誤跑到錯誤環境時的辨識成本。
 
-**不建議**幫 `seo`/`faq`/`contact_quest` 補寫 admin CRUD API 來解決這個問題——那是一個獨立、範圍遠大於「staging 測試資料」的後端功能任務，不屬於本次 readiness 分析。
+**不建議**幫 `seo`/`contact_quest` 補寫 admin CRUD API 來解決這個問題——那是一個獨立、範圍遠大於「staging 測試資料」的後端功能任務，不屬於本次 readiness 分析。`faq` 的情況已不同：admin CRUD 已於 2026-08-28 補上（見 §6.1），所以 `faq` 的測試資料現在可以直接走 API，不必再依賴這份 seed SQL。
 
 ---
 
@@ -316,7 +321,7 @@ npm run build     ✅ 通過（`.output/server/index.mjs` 產出）
 | **FAQ 24hr cache** | **DEFERRED_NON_BLOCKING**（重新評估，見 §10.1） | 不是 cutover blocker |
 | **Contact Queue 化** | **DEFERRED_NON_BLOCKING**（重新評估，見 §10.2） | 不是 cutover blocker |
 | **Mail 模板逐字複製** | **DEFERRED_NON_BLOCKING**（重新評估，見 §10.3） | 不是 cutover blocker |
-| `seo`/`faq`/`contact_quest` 缺少寫入 API（§6.1 新發現） | DEFERRED_NON_BLOCKING | 目前唯讀公開資料本身沒有錯誤；「後台無法透過 UI/API 編輯」是既有維運限制，不影響前台/API 對外行為的正確性，且不在本次遷移排定範圍內 |
+| `seo`/`contact_quest` 缺少寫入 API（§6.1）；`faq` 已於 2026-08-28 補上 | DEFERRED_NON_BLOCKING（`seo`/`contact_quest`）／DONE（`faq`） | `seo`/`contact_quest` 唯讀公開資料本身沒有錯誤，「後台無法透過 UI/API 編輯」是既有維運限制，不影響前台/API 對外行為的正確性，且不在本次遷移排定範圍內；`faq` 已新增完整 admin CRUD（新 Node/Admin 功能，非 legacy parity），見 §6.1 |
 
 ### 10.1 FAQ Cache 重新評估
 
@@ -352,4 +357,4 @@ npm run build     ✅ 通過（`.output/server/index.mjs` 產出）
 3. Zeabur 是否會注入 `PORT` 環境變數蓋過 Dockerfile `EXPOSE 8080` 預設（§1.1 第 4 項）
 4. Zeabur staging service 是否會產生額外 preview URL，若有是否需要加進 CORS allowlist（§3）
 5. 內部收件人是否有依賴特定 mail 格式的自動化規則（§10.3）
-6. `seo`/`faq`/`contact_quest` 缺少後台寫入 API 是否需要排入未來的獨立任務（§6.1，本次僅記錄，不建議本次動作）
+6. `seo`/`contact_quest` 缺少後台寫入 API 是否需要排入未來的獨立任務（§6.1，本次僅記錄，不建議本次動作）；`faq` 已於 2026-08-28 完成，不再是待確認項目

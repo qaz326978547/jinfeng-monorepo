@@ -270,6 +270,21 @@ components:
       x-source-file: app/Http/Requests/CreateContactClassRequest.php
       x-confirmation-status: CONFIRMED
 
+    FaqWriteRequest:
+      type: object
+      description: >
+        Shared by POST /admin/faq and PUT /admin/faq/{id}. New Node/Admin
+        feature — there is no Laravel FormRequest to source this from (no
+        confirmed legacy admin FAQ API exists at all; see
+        specs/backend/laravel-to-node-parity.md). Modeled on the confirmed
+        ContactClassCreateRequest pattern.
+      properties:
+        name: { type: string }
+        info: { type: string }
+        "no": { type: integer }
+      required: [name, info, "no"]
+      x-confirmation-status: NEW_NODE_FEATURE
+
     RegisterRequest:
       type: object
       properties:
@@ -448,6 +463,120 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Faq" }
+
+  /api/v2/admin/faq:
+    get:
+      operationId: adminListFaq
+      summary: 管理端：取得所有 FAQ（新 Node/Admin 功能，非 Laravel legacy parity）
+      description: >
+        No confirmed legacy admin FAQ API exists — see
+        specs/backend/laravel-to-node-parity.md. Same 4-column
+        projection/ordering as the public GET /faq (no del filter). No
+        active cache layer sits in front of this table, so a write here is
+        visible on the next public GET /faq immediately.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Faq" }
+    post:
+      operationId: adminCreateFaq
+      summary: 管理端：新增 FAQ（新 Node/Admin 功能）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FaqWriteRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "新增成功" }
+                  data: { $ref: "#/components/schemas/Faq" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+    delete:
+      operationId: adminDeleteFaq
+      summary: 管理端：刪除 FAQ（單筆或批次，硬刪除；新 Node/Admin 功能）
+      description: >
+        Hard delete (real DELETE, not del=1) — matches the implemented
+        precedent for the same table family (contact_class; see
+        known-legacy-issues.md #10). No confirmed legacy FAQ admin delete
+        contract exists to contradict this.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteByIdsRequest" }
+      responses:
+        "200":
+          description: 刪除成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 部分或全部 id 不存在
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/faq/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      operationId: adminUpdateFaq
+      summary: 管理端：更新 FAQ（新 Node/Admin 功能）
+      description: >
+        Allows changing name/info/no only — id and del are never written.
+        404 if the id does not exist.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FaqWriteRequest" }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: "#/components/schemas/Faq" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
 
   /api/v2/auth/login:
     post:

@@ -10,6 +10,7 @@ import { createAdminContactClassRouter } from '../modules/contact-class/admin-co
 import { createContactListRouter } from '../modules/contact-list/contact-list.routes';
 import { createContactQuestRouter } from '../modules/contact-quest/contact-quest.routes';
 import { createFaqRouter } from '../modules/faq/faq.routes';
+import { createAdminFaqRouter } from '../modules/faq/admin-faq.routes';
 import { createSeoRouter } from '../modules/seo/seo.routes';
 import type { MailConfig } from '../infrastructure/mail/mail.config';
 import { createHealthRouter } from './health/health.route';
@@ -73,6 +74,9 @@ export function createRootRouter(deps: RouterDeps): Router {
     '/admin/contact-list',
     createContactListRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }),
   );
+  // New Node/Admin feature — no confirmed legacy FAQ admin contract (see
+  // specs/backend/laravel-to-node-parity.md), not legacy parity work.
+  apiV2.use('/admin/faq', createAdminFaqRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }));
   // Remaining admin/* writes (POST/PUT/DELETE contact-class, DELETE contact)
   // mount here in a later batch; PUT /admin/contact/{id} is deferred (§11).
   router.use(API_V2_BASE_PATH, apiV2);

@@ -61,7 +61,28 @@ docker compose exec api npm run db:migrate
 docker compose exec api npm run db:verify
 ```
 
-### 2.4 確認 Backend 正常運作
+### 2.4 本機資料庫（MySQL）連線資訊
+
+非機密、本來就寫在 `backend/docker-compose.yml` 裡的本機開發預設值，可用任何 DB GUI（TablePlus/DBeaver/…）或 `mysql` CLI 直接連：
+
+| 項目 | 值 |
+|---|---|
+| Host | `localhost` |
+| Port | `3306` |
+| User | `jinfeng` |
+| Password | `local_dev_only` |
+| Database | `jinfeng_local` |
+| Root password（如需 root 權限） | `local_dev_only` |
+
+```bash
+mysql -h 127.0.0.1 -P 3306 -u jinfeng -plocal_dev_only jinfeng_local
+# 或直接進容器：
+docker compose exec mysql mysql -u jinfeng -plocal_dev_only jinfeng_local
+```
+
+`backend/.env` 已對齊這組設定（`DB_HOST=localhost`），所以在本機直接跑 `npm run dev`（不透過 docker-compose 的 `api` 容器）也連得到。**正式環境資料庫連線資訊在 `backend/.env.production`（同樣被 gitignore 排除，不會進版控）**，僅供刻意手動執行唯讀 `db:verify` 使用，切勿拿來跑 `db:migrate`。
+
+### 2.5 確認 Backend 正常運作
 
 ```bash
 curl http://localhost:8080/health   # 應回 200，liveness，不查 DB
@@ -99,6 +120,17 @@ npm run dev
 ## 4. 建立測試帳號
 
 前端目前**沒有註冊頁面**（`AuthApi.register` 是死碼，刻意不做 UI，見 `specs/backend/laravel-to-node-parity.md` §10.13），要建立測試帳號必須直接呼叫 backend API。
+
+### 目前本機資料庫已建立的帳號
+
+以下帳號已透過 §4.1 的方式建立在本機 `jinfeng_local` 資料庫（`mysql_data` volume 會持續保留，除非執行 `docker compose down -v`，見 §7）：
+
+| Email | 密碼 | is_admin | 用途 |
+|---|---|---|---|
+| `qaz326978547@gmail.com` | `qaz19981127` | ✅ 是 | 主要 QA 管理員測試帳號，已驗證可登入並成功呼叫 `/api/v2/admin/*`（含新增的 `admin/faq`） |
+| `bean@test.com` | （未知，非本次建立） | ✅ 是 | 先前本機測試留下的既有帳號 |
+
+若要重新建立（例如換一台機器、或執行過 `docker compose down -v` 清空資料庫），照下面 §4.1 的指令，把 email/password 換成上表的值即可。
 
 ### 4.1 建立管理員帳號（測試 admin 後台必備）
 
@@ -189,6 +221,21 @@ curl -X POST http://localhost:8080/api/v2/auth/register \
 
 - [ ] `GET /api/v2/admin/contact-list` → 200
 - [ ] `GET /api/v2/admin/contact-list/{id}` → 200 或 404
+
+### 5.5b Admin — FAQ（新功能，非 Laravel legacy parity，API + UI）
+
+- [ ] (API) `GET /api/v2/admin/faq` 未帶 token → 401；帶非 admin token → 403；帶 admin token → 200 `{"data":[...]}`
+- [ ] (API) `POST /api/v2/admin/faq`（body `{"name":"測試問題","info":"測試回答","no":1}`）→ 201，回傳新增的資料
+- [ ] (API) 缺 `name`/`info`/`no` 任一欄位 → 400
+- [ ] (API) `PUT /api/v2/admin/faq/{id}`（body 同上，換內容）→ 200，欄位確實更新；帶不存在的 id → 404
+- [ ] (API) `DELETE /api/v2/admin/faq`（body `{"ids":[<id>]}`）→ 200，**真正硬刪除**（不是軟刪除，之後查不到）
+- [ ] (API) 新增/修改/刪除後立即 `GET /api/v2/faq`（public，不需 token）→ 立即看到變化（目前無 cache，見 `specs/backend/laravel-to-node-parity.md` §5b）
+- [ ] (UI) 用 §4.1 的 admin 帳號登入後，訪問 `/admin/contact/contact_quest` → 看到 FAQ 列表（畫面標題「FAQ 管理」）
+- [ ] (UI) 點「新增 FAQ」→ 填問題/回答/排序 → 送出 → 回到列表能看到新資料
+- [ ] (UI) 點某筆的編輯按鈕 → 表單預填現有值 → 修改後儲存 → 列表反映新內容
+- [ ] (UI) 直接在列表修改「排序」欄位（inline input）→ 自動送出 PUT，列表依新排序重排
+- [ ] (UI) 點刪除 → 跳出確認對話框，取消不會刪除；確認後該筆從列表消失
+- [ ] (UI) 前台 `/faq` 頁面（`FaqComponent.vue`）→ 確認剛剛在後台的異動同步顯示
 
 ### 5.6 Frontend Auth UX（UI，瀏覽器操作 http://localhost:3000）
 
