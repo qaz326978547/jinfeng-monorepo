@@ -148,7 +148,9 @@ describe('POST /api/v2/admin/faq', () => {
     const insertCall = (queryFn.mock.calls as [string, unknown[]?][]).find(([sql]) =>
       sql.startsWith('INSERT INTO faq'),
     );
-    expect(insertCall?.[0]).toBe('INSERT INTO faq (name, info, no) VALUES (?, ?, ?)');
+    expect(insertCall?.[0]).toBe(
+      'INSERT INTO faq (name, info, no, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
+    );
     expect(insertCall?.[1]).toEqual(['新問題', '新解答', 20]);
   });
 

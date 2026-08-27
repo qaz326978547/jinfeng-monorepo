@@ -156,6 +156,23 @@ describe('POST /api/v2/contact', () => {
       // Params: class, quest, company, tel, num, last5, ticket, ...
       expect(contactInsert[1]?.[6]).toBeNull();
     });
+
+    it('sets created_at/updated_at to NOW() on both contact and contact_list inserts — regression test for admin list page-1 bug (NULL sorts last under ORDER BY created_at DESC)', async () => {
+      const connection = buildHappyConnection();
+      const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+      await request(app).post('/api/v2/contact').send(validPayload());
+
+      const contactInsert = findQueryCall(connection.query, 'INSERT INTO contact ');
+      expect(contactInsert[0]).toBe(
+        'INSERT INTO contact (class, quest, company, tel, num, last5, ticket, ticket_name, ticket_no, ticket_address, `from`, suggest_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())',
+      );
+
+      const contactListInsert = findQueryCall(connection.query, 'INSERT INTO contact_list');
+      expect(contactListInsert[0]).toBe(
+        'INSERT INTO contact_list (name, email, job, cel, cid, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
+      );
+    });
   });
 
   describe('validation failures (400, {status:"error", message}) — no DB write attempted', () => {

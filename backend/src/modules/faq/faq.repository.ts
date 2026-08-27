@@ -59,10 +59,17 @@ export class FaqRepository {
     return row;
   }
 
-  /** `del`/`class_id`/and the other unused legacy columns are left to their table DEFAULTs. */
+  /**
+   * `del`/`class_id`/and the other unused legacy columns are left to their
+   * table DEFAULTs. `created_at`/`updated_at` are explicitly set to `NOW()`
+   * — these columns have no DB-level default/trigger, unlike legacy
+   * Eloquent which auto-manages timestamps on every model save (see the
+   * same fix in contact.repository.ts::insertContact for the bug this
+   * caused elsewhere).
+   */
   async create(name: string, info: string, no: number): Promise<FaqRow> {
     const [result] = await this.pool.query<ResultSetHeader>(
-      'INSERT INTO faq (name, info, no) VALUES (?, ?, ?)',
+      'INSERT INTO faq (name, info, no, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
       [name, info, no],
     );
     return this.findByIdOrThrow(result.insertId);

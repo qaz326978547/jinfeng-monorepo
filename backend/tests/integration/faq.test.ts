@@ -68,7 +68,7 @@ function createStatefulFaqPool() {
       const row = rows.find((r) => r.id === params[0]);
       return Promise.resolve([row ? [row] : [], []]);
     }
-    if (sql === 'INSERT INTO faq (name, info, no) VALUES (?, ?, ?)') {
+    if (sql === 'INSERT INTO faq (name, info, no, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())') {
       const [name, info, no] = params as [string, string, number];
       const id = nextId++;
       rows.push({ id, name, info, no });
