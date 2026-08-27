@@ -41,6 +41,11 @@ Branch:     integration/monorepo
 - `Dockerfile` 內 `EXPOSE 8080`；`src/config/env.ts` 的 `PORT` 從 `process.env.PORT` 讀取，`.default(8080)`；`src/server.ts` 用 `app.listen(env.PORT, '0.0.0.0', ...)`。
 - **預期**：Zeabur 會自動注入 `PORT` 環境變數，backend 會監聽該 port，`0.0.0.0` bind 已正確處理，Zeabur 的反向代理可以正常轉發。
 - ⚠️ **手動確認項**（本文件無法從程式碼確認）：Zeabur 是否真的會注入 `PORT`，或是直接沿用 image 的 `EXPOSE 8080`——部署後第一件事就是確認 service 實際監聽的 port 與 Zeabur 對外路由的 port 一致（見 §8 E2E 第一步）。
+- ⚠️ **2026-08-27 明確排除的錯誤做法**：取得舊 Laravel production env 清單後，發現舊 service 用 `PORT=${WEB_PORT}`。**這不代表 Node staging/production service 也要照抄這個設定**——舊 service 的既有設定只是線索，不是新 service 的事實。**第一輪部署 backend staging 時，`PORT` 環境變數留白，不手動設定任何值**，改用以下方式觀察：
+  1. Zeabur console 的 service runtime env（看 Zeabur 有沒有自動注入 `PORT`、值是多少）
+  2. 應用程式啟動 log 裡的 `Server listening on 0.0.0.0:${env.PORT} (...)`（`src/server.ts` 已有這行 log）
+  3. `curl https://<backend-staging-domain>/health` 是否正常
+  只有在確認 `/health` 打不通、且原因是 port 綁定/路由不對，才嘗試加上 `PORT=${WEB_PORT}` 或其他值重新測一次。詳細理由見 `production-env-readiness.md` §13.2。
 
 ### 1.3 Health / Ready Endpoint
 
@@ -55,7 +60,7 @@ Branch:     integration/monorepo
 
 ```
 NODE_ENV=production
-# PORT — 不設定，讓 Zeabur 自動注入
+# PORT — 第一輪不設定，見 §1.2 的觀察步驟，只有證明必要才加上
 
 DB_HOST=<staging-mysql-host>          # 見 §3，指向 staging MySQL，不是 production
 DB_PORT=3306
@@ -127,6 +132,22 @@ NUXT_PUBLIC_GTM_ID=                                          # 建議留空，st
 ### 3.2 DB Env Wiring
 
 Backend staging service 的 `DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`/`DB_DATABASE` 指向這個新建立的 staging MySQL（見 §1.4）。**建議 `DB_DATABASE` 命名包含 `staging` 字樣**（例如 `jinfeng_staging`），降低日後對錯資料庫下指令的機率。
+
+⚠️ **舊 Laravel env 是 `DB_USERNAME`，Node 是 `DB_USER`**——兩者 key 名稱不同，若參考舊環境變數清單設定 staging，務必用 `DB_USER`，否則 `loadEnv()` 會因為缺少必填的 `DB_USER` 直接啟動失敗。
+
+### 3.2.1 （新增）Private/Internal Host vs. Public Cluster Host 驗證
+
+`specs/backend/production-env-readiness.md` §13.4 記錄了一個新的待確認項：Zeabur 是否為同 project 的 MySQL 提供 **project-internal/private network host**（與對外的 public cluster host 是兩種不同的連線方式）。**這個驗證應該用 staging 自己的 MySQL 做，不要用 production 資料庫做 A/B 實驗。**
+
+若 staging MySQL 與 backend staging service 部署在同一個 Zeabur project，建議在這裡順便驗證：
+
+- [ ] 用 private/internal host 值實測連線成功
+- [ ] 確認是否需要額外的 SSL/TLS 設定（現有 `buildPoolOptions()` 沒有 `ssl` 選項）
+- [ ] `npm run db:migrate -- --allow-production` 對 private host 執行成功
+- [ ] `npm run db:verify` 對 private host 執行成功
+- [ ] 確認 private host 位址在 service 重啟/重新部署後是否穩定不變
+
+若以上在 staging 全部驗證通過，才能把「production 也改用 private host」納入正式 cutover 的選項；否則 production 維持用已知可行的 public cluster host 連線方式。
 
 ### 3.3 Migration
 
@@ -219,6 +240,7 @@ VALUES (0, '[STAGING] 測試 FAQ 標題', NOW(), '[STAGING] 測試 FAQ 內容', 
 - **不混用**：staging 的值只填 staging frontend 網址，production 的值維持原樣不動。
 - **不用 `*`**：`src/config/cors.ts` 的實作本身也不支援 wildcard + `credentials:true`。
 - 兩個 service 在 Zeabur console 各自獨立設定環境變數，物理上不會互相影響。
+- ⚠️ **2026-08-27 補充**：production 候選值的正式驗證方式是**檢查瀏覽器實際發出的 request 的 `Origin` header**，不是看舊 Laravel 的 `APP_URL` 或任何文件記載的「應該是」的網址（舊 Laravel `APP_URL=https://jinfengv2.zeabur.app` 與目前記載的 `laborservice5690.com` 不同，只能當線索，不能拿來決定值——詳見 `production-env-readiness.md` §13.3）。Staging 驗證同理，§8.5 的 CORS 檢查也是看瀏覽器實際行為，不是看設定檔「應該」是什麼。
 
 ---
 
@@ -380,3 +402,21 @@ curl -s https://<frontend>/ | grep -o "apiBaseUrl:\"[^\"]*\""
 - [ ] no production resources used（全程確認 `DB_HOST`/`CORS_ALLOWED_ORIGINS`/`JWT_SECRET`/`RECIPIENT_EMAIL` 沒有任何一項意外指向 production）
 
 **任一項未過，都視為 No-Go**——不應該以「大部分項目都過了」為由跳過剩餘項目直接討論 production cutover。
+
+---
+
+## 11. Legacy Laravel Env Mapping 與 Security Rotation（2026-08-27，新增）
+
+### 11.1 舊 Laravel Production Env 對照
+
+已取得舊 Laravel Zeabur production 環境變數清單，逐項 mapping、PORT/CORS/DB host 決策修正、production env template（僅 key/placeholder，不含真實值），全部記錄在 **`specs/backend/production-env-readiness.md` §13**——本 runbook 只在相關章節（§1.2/§3.2/§6）加上指向該節的補充說明，不重複整份 mapping 表，避免兩份文件內容分岔。
+
+### 11.2 Security Rotation Checklist（正式 cutover 前必須完成，加入 §10 Go/No-Go 前的準備工作）
+
+以下三項屬於 production cutover 前的準備工作，**不是** staging 本身的 Go/No-Go 項目（staging 用的是全新、staging 專屬的憑證，不受這裡影響），但必須在正式 cutover 前完成，**且不得**在任何文件（含本文件）記錄實際 rotate 後的新值：
+
+- [ ] Rotate production DB credential（`DB_PASSWORD`）
+- [ ] Rotate SMTP credential（`MAIL_PASSWORD`）
+- [ ] Generate fresh `JWT_SECRET`（Node 這邊從未有過這把金鑰，是首次產生，不是 rotate 既有值）
+
+詳細理由見 `production-env-readiness.md` §13.7/§13.8。

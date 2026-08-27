@@ -116,6 +116,8 @@ vite: {
 CORS_ALLOWED_ORIGINS=https://laborservice5690.com
 ```
 
+**2026-08-27 補充**：取得舊 Laravel production env 清單後，發現 `APP_URL=https://jinfengv2.zeabur.app`，與上面這個候選值不同網域。**`APP_URL` 不能用來決定這個值**——CORS 判斷的是瀏覽器實際 request 的 `Origin` header，不是 Laravel 內部設定，正式驗證方式與這個落差本身的處理見 §13.3。此候選值維持 `PRODUCTION_MANUAL_VERIFY`，不因本次發現而改變。
+
 ### 3.2 逐項確認
 
 - **`https://laborservice5690.com`（apex，非 www）**：✅ **需要**——這是 `nuxt.config.ts` 裡 `site.url`/`NUXT_PUBLIC_SITE_URL` 記載的正式網域，也是 `middleware/redirect-www.global.ts` 重導向的**目標**（見下一項）。
@@ -191,6 +193,7 @@ CORS_ALLOWED_ORIGINS=https://laborservice5690.com
 - Backend `env.ts`：`PORT` 有 `.default(8080)`，`server.ts` 用 `app.listen(env.PORT, '0.0.0.0', ...)`，`Dockerfile` 也 `EXPOSE 8080`。
 - `backend/README.md` 的「Zeabur 相容性」章節明確記載「監聽 `process.env.PORT`、`0.0.0.0`」，代表這個專案的既有假設是 **Zeabur 會透過 `PORT` 環境變數動態指派埠號，應用程式必須讀取它而不是寫死**——目前程式碼確實這樣做了。
 - **需要人工確認的一點**：Zeabur 對於「有 Dockerfile 且 `EXPOSE 8080`」的 service，是否一定會注入 `PORT` 環境變數、還是直接沿用 image 宣告的 `EXPOSE` 埠號——這是 Zeabur 平台行為，本分析無法從 repo 內容確認，列入 §9 manual verification。
+- **2026-08-27 補充**：舊 Laravel production service 用的是 `PORT=${WEB_PORT}` 這種 Zeabur 變數 interpolation 寫法（見 §13.1 env mapping）。**這只是舊系統的既有線索，不代表 Node service 一定需要同樣設定**——決策方式與驗證步驟見 §13.2，維持 `STAGING_REQUIRED`，第一輪 staging 部署刻意不手動設定 `PORT`，用觀察 runtime env/啟動 log/`/health` 的方式決定是否需要。
 
 ---
 
@@ -206,6 +209,8 @@ CORS_ALLOWED_ORIGINS=https://laborservice5690.com
 6. **Mail 實際寄送**：設定 `MAIL_*`/`RECIPIENT_EMAIL` 後，實際觸發一次 `POST /contact`，確認真的收到通知信（本次分析只能確認「有設定就會嘗試寄」的程式碼邏輯，無法驗證真實 SMTP 憑證是否有效）。
 7. **`JWT_SECRET` 正式值**：確認 Zeabur 上設定的是全新產生的正式密鑰，不是本機開發/測試用的值，且與任何其他環境不共用。
 8. **Zeabru preview/staging domain 是否存在**：若存在且需要測試 admin 功能，把該 domain 加入 `CORS_ALLOWED_ORIGINS`（見 §3.2）。
+9. **（2026-08-27 新增）DB Host：private/internal vs public cluster**：確認 Zeabur 是否為同 project 的 MySQL 提供 project-internal host，並依 §13.4 的前提條件清單在 staging 環境（非 production）逐項驗證後，才能決定 production 要用哪一種連線方式。
+10. **（2026-08-27 新增）`PORT` 決策的具體驗證步驟**：見 §13.2——staging 部署第一輪不手動設定 `PORT`，改為觀察 Zeabur runtime env、應用程式啟動 log、`/health` 三者確認是否需要。
 
 ---
 
@@ -272,3 +277,183 @@ CORS_ALLOWED_ORIGINS=https://laborservice5690.com
 ## 12. Staging Deployment Readiness（2026-08-27，另開文件）
 
 **staging 環境的部署 readiness 分析（backend/frontend Zeabur config、staging 專屬 env matrix、staging CORS、staging DB 規劃、mail safety、seed 策略、E2E checklist、rollback plan、production blockers 重新分類）已獨立成專屬文件：`specs/backend/staging-deployment-readiness.md`。** 本文件（production-env-readiness.md）維持只涵蓋 **production** 的分析，兩份文件的建議值不同，不要混用（例如：production 的 `CORS_ALLOWED_ORIGINS` 是 `https://laborservice5690.com`，staging 是完全不同的 `https://<frontend-staging-domain>`；DB/JWT_SECRET/mail 亦然，兩邊必須互相獨立）。
+
+---
+
+## 13. Legacy Laravel Production Env Mapping（2026-08-27）
+
+> 本節記錄「舊 Laravel Zeabur production 環境變數清單」與 Node backend 所需變數的對照分析。**本節只做分析與規劃，未修改 production service，未輸出任何真實 secret 值**——下表只列變數名稱與「沿用/改名/新產生/移除/待確認」的判斷，不含任何實際密碼、金鑰、連線字串。
+>
+> **核心原則（本節據此重新檢視先前部分結論）**：舊 Laravel service 的既有設定值，只能當作「這個系統過去長什麼樣子」的線索，**不能直接當成新 Node service 應該怎麼設定的事實**——PORT、CORS 兩項先前的判斷方向即依此原則重新修正，見 §13.2/§13.3。
+
+### 13.1 逐項 Mapping 總表
+
+| 舊 Laravel 變數 | 分類 | Node 對應 | 說明 |
+|---|---|---|---|
+| `DB_HOST` | 沿用（值待 §13.4 決策） | `DB_HOST` | 見 §13.4——**不預先假設**要沿用公開 cluster host |
+| `DB_PORT` | 沿用 | `DB_PORT` | 隨 §13.4 的 host 選擇一併決定 |
+| `DB_USERNAME` | **改名** | `DB_USER` | key 名稱不同，值相同；漏改會讓 `loadEnv()` 因缺少必填的 `DB_USER` 直接啟動失敗 |
+| `DB_PASSWORD` | 沿用（但見 §13.7 rotation） | `DB_PASSWORD` | |
+| `DB_DATABASE` | 沿用 | `DB_DATABASE` | |
+| `MAIL_HOST` | 沿用 | `MAIL_HOST` | |
+| `MAIL_PORT` | 沿用 | `MAIL_PORT` | |
+| `MAIL_USERNAME` | 沿用（但見 §13.7 rotation） | `MAIL_USERNAME` | |
+| `MAIL_PASSWORD` | 沿用（但見 §13.7 rotation） | `MAIL_PASSWORD` | |
+| `MAIL_ENCRYPTION` | 沿用 | `MAIL_ENCRYPTION` | 值落在 Node enum(`tls`/`ssl`/`none`)內，合法 |
+| `MAIL_FROM_NAME` | 沿用 | `MAIL_FROM_NAME` | |
+| `RECIPIENT_EMAIL` | 沿用 | `RECIPIENT_EMAIL` | |
+| `PORT=${WEB_PORT}` | **不預先沿用**，見 §13.2 | `PORT` | 舊 service 這樣設定，**不代表新 service 一定需要**——維持 `STAGING_REQUIRED`，用實測決定 |
+| `APP_URL` | 僅供參考，**不用於決策** | 無直接對應 | 見 §13.3——不能拿它決定 `CORS_ALLOWED_ORIGINS` |
+| （清單中無對應） | **全新，需產生** | `JWT_SECRET` | 不可沿用 `APP_KEY`（用途完全不同：Laravel 加解密 vs Node JWT 簽章），必須另外產生全新隨機值，且需納入 §13.7 rotation checklist（**首次產生也算一種 rotation**，因為這是全新機密，沒有「舊版本」可對照） |
+| （清單中無對應） | **全新，需決定** | `CORS_ALLOWED_ORIGINS` | 見 §13.3 |
+| （清單中無對應） | **全新，需決定** | `MAIL_FROM_ADDRESS` | 見 §13.5 |
+| （清單中無對應） | 新（有 default，可選） | `NODE_ENV`/`JWT_EXPIRES_IN`/`BCRYPT_SALT_ROUNDS`/`LOG_LEVEL` | 建議明確設定而非依賴 default，但不阻斷 |
+| `PASSWORD` | **不搬到 Node，不刪除舊 service** | 無對應 | 見 §13.6 |
+| `APP_DEBUG`/`APP_ENV`/`APP_KEY`/`APP_NAME`/`BROADCAST_DRIVER`/`CACHE_DRIVER`/`DB_CONNECTION`/`LOG_CHANNEL`/`MAIL_DRIVER`/`MIX_PUSHER_*`/`PUSHER_*`/`QUEUE_CONNECTION`/`REDIS_*`/`SESSION_DRIVER`/`SESSION_LIFETIME` | **不搬到 Node**，**不刪除舊 Laravel service** | 無對應 | 見 §13.6 完整清單與理由 |
+| `JENFENG_BACK_*`/`JINFENG_FRONT_*`（6 個 Zeabur 內部 service 參照） | 與此次遷移無關 | 無對應 | 疑似同一 Zeabur 帳號下其他專案的 service 參照（命名如 `LORIER`/`THELES`/`MOTY`），不動它，不搬到新 backend |
+| `MYSQL_HOST=service-...` | 待確認，見 §13.4 | 可能是 `DB_HOST` 的內網替代值 | Zeabur 內部 service 參照格式，可能是同一個 MySQL 的 private network 位址 |
+
+### 13.2 PORT 決策：**維持 `STAGING_REQUIRED`，不因舊 Laravel 設定而改變**
+
+**修正先前分析方向**：舊 Laravel service 用 `PORT=${WEB_PORT}` 這個 Zeabur 變數 interpolation 語法，**這只證明「舊系統當時是這樣設定的」，不能證明「Node service 也需要同樣設定」**——兩個 service 是否共用同一種 PORT 注入機制，取決於 Zeabur 平台本身對「有 Dockerfile 的 service」的處理方式，而 Node backend 用 Dockerfile 部署、Laravel 未必是同一種部署形態，不能一概而論。
+
+Node backend 本身已經完整支援標準的動態 PORT 機制，不需要額外設定就能運作：
+- `src/config/env.ts`：`PORT` 讀自 `process.env.PORT`，`.default(8080)`
+- `src/server.ts`：`app.listen(env.PORT, '0.0.0.0', ...)`
+- `Dockerfile`：`EXPOSE 8080`
+
+**Staging 實際驗證方式（第一輪不手動設定 `PORT`）**：
+1. 部署 backend staging service 時，**先不要**手動加 `PORT=${WEB_PORT}` 或任何 `PORT` 值。
+2. 觀察三件事：
+   - Zeabur console 的 service runtime env（Zeabur 是否有自動注入 `PORT`，值是多少）
+   - Application 啟動 log 裡的 `Server listening on 0.0.0.0:${env.PORT} (...)`（`src/server.ts` 已有這行 log，可以直接看到程式實際綁定的 port）
+   - `curl https://<backend-staging-domain>/health` 是否正常回應
+3. **只有在 `/health` 打不通、且確認是 port 綁定/路由不對造成**，才加上 `PORT=${WEB_PORT}`（或其他 Zeabur 要求的值）重新測一次。
+
+**不得把舊 Laravel service 的設定當成新 service 的既定事實。**
+
+### 13.3 CORS 決策：**候選值不變，但驗證方式必須基於瀏覽器實際 Origin，不是 `APP_URL`**
+
+**修正先前分析方向**：`APP_URL=https://jinfengv2.zeabur.app` 只能記錄成「舊系統設定裡的一條線索」（`stale/legacy configuration clue`），**不能用它來決定 `CORS_ALLOWED_ORIGINS`**——CORS 檢查的是瀏覽器實際發出請求時的 `Origin` header，跟 Laravel 自己設定的 `APP_URL`（Laravel 內部用於產生連結、非 CORS 用途）是兩件事，即使兩者當初設計上「應該」一致，也不能假設現在仍然一致。
+
+**目前的 production 候選值維持不變**：
+```
+CORS_ALLOWED_ORIGINS=https://laborservice5690.com
+```
+（依據：`frontend/nuxt.config.ts`/`frontend/README.md` 目前記載的正式網域）
+
+**但正式狀態維持 `PRODUCTION_MANUAL_VERIFY`**，不因為本節分析而改變成已驗證。正式驗證方式：
+
+1. 開啟瀏覽器實際訪問目前的 production frontend。
+2. DevTools → Network，觸發任一支會打 backend API 的請求（例如登入）。
+3. 檢查該 request 的 **Request Headers** 裡的 `Origin` 欄位實際值。
+4. 若 `Origin` 確實是 `https://laborservice5690.com`，則上述 `CORS_ALLOWED_ORIGINS` 候選值成立；若不是（例如瀏覽器實際打開的是 `jinfengv2.zeabur.app` 或其他網域），`CORS_ALLOWED_ORIGINS` 必須改成瀏覽器實際回報的那個值，不是任何文件裡記錄的「應該是」的值。
+
+`APP_URL=https://jinfengv2.zeabur.app` 與 `laborservice5690.com` 之間的落差，只登記為待確認的既有線索，見 §14 production cutover 未解決項目。
+
+### 13.4 Database Host 決策：Public Cluster Host vs. Zeabur Project-Internal Host
+
+**修正先前分析方向**：不預先認定 production 的 `DB_HOST` 必須沿用舊 Laravel 用的公開 cluster host（`hkg1.clusters.zeabur.com`）。
+
+**新增待確認項**：Zeabur 是否為同一 project 內的服務提供 **project-internal/private network host**（舊 env 清單裡的 `MYSQL_HOST=service-667908be1ec5614c11f64c2f` 疑似就是這種內部參照格式，與公開的 `hkg1.clusters.zeabur.com:31671` 是兩個不同的連線方式）。
+
+| 選項 | 說明 |
+|---|---|
+| A. Private/internal MySQL host | 若 Node backend service 與這個 MySQL 部署在同一個 Zeabur project，內網連線通常更快（不經過公網）、也更安全（不暴露在公開端點）。**優先推薦**，但有前提條件（見下）。 |
+| B. Public cluster host（`hkg1.clusters.zeabur.com:31671`） | 舊 Laravel 一直以來使用的方式，已知可行（本次分析已用這個位址成功連線並執行唯讀 schema 驗證）。 |
+
+**採用 A 的前提條件（必須在 staging 全部驗證通過才能考慮用於 production）**：
+- [ ] 用 private host 值實測連線成功
+- [ ] 確認是否需要額外的 SSL/TLS 設定（`buildPoolOptions()` 目前完全沒有 `ssl` 選項，這本身也是既有的待確認項）
+- [ ] `npm run db:migrate -- --allow-production` 對 private host 執行成功
+- [ ] `npm run db:verify` 對 private host 執行成功、schema 結果與用 public host 驗證的結果一致
+- [ ] 確認 private host 在 Zeabur service 重啟/重新部署後位址是否穩定（不會變動），若會變動則不適合硬編碼進環境變數
+
+**在以上全部驗證通過前，`DB_HOST` 的 production 決策維持 `STAGING_REQUIRED`（且明確排除 production 資源）**——staging 階段本來就該用獨立的 staging MySQL 測試連線方式，不會用這組 production 憑證去測 A/B（測 A/B 選項應該用 staging 自己的 MySQL 是否也提供 private host 的方式驗證機制本身可行，不是拿 production DB 來回切換連線方式做實驗）。
+
+### 13.5 `MAIL_FROM_ADDRESS` 建議
+
+舊 Laravel env 清單裡沒有這個變數。目前 production mail 是 Gmail SMTP（`MAIL_HOST=smtp.gmail.com`）。
+
+**建議預設值**：
+```
+MAIL_FROM_ADDRESS = <與 MAIL_USERNAME 相同的 Gmail 地址>
+```
+理由：Gmail SMTP 對於「寄件人地址跟登入帳號不一致」這件事通常會被拒絕或強制覆寫（Gmail 的 SMTP relay 基本上只允許用已驗證的帳號地址當寄件人，除非另外設定 alias），用 `MAIL_USERNAME` 的值當 `MAIL_FROM_ADDRESS` 是最不容易出錯的預設選擇。
+
+**標記為 `PRODUCTION_MANUAL_VERIFY`**——本節只給預設建議，不代表這是唯一正確答案或已經確認過；正式設定前建議實際寄一封測試信確認寄件人顯示正確、沒有被 Gmail 擋下或改寫。
+
+### 13.6 `PASSWORD` 變數：兩邊都不動
+
+- **新 Node backend service**：不搬——Node 原始碼裡沒有任何地方讀取名為 `PASSWORD` 的環境變數，加了也不會被使用。
+- **舊 Laravel production service**：**不刪除**，直到 production cutover 完成且已經明確確認這個變數的實際用途為止（見 §14 待確認清單）——在還不知道它是給誰用的情況下貿然刪除，有可能弄壞某個依賴它的其他機制。
+
+### 13.7 Legacy 變數不搬清單（重申，不修改舊 Laravel service 本身）
+
+以下變數**不會出現在新 Node backend service 的環境變數設定裡**：
+
+```
+APP_DEBUG
+APP_ENV
+APP_KEY
+APP_NAME
+APP_URL
+BROADCAST_DRIVER
+CACHE_DRIVER
+DB_CONNECTION
+LOG_CHANNEL
+MAIL_DRIVER
+MIX_PUSHER_APP_CLUSTER
+MIX_PUSHER_APP_KEY
+PUSHER_APP_CLUSTER
+PUSHER_APP_ID
+PUSHER_APP_KEY
+PUSHER_APP_SECRET
+QUEUE_CONNECTION
+REDIS_HOST
+REDIS_PASSWORD
+REDIS_PORT
+SESSION_DRIVER
+SESSION_LIFETIME
+```
+
+**這份清單只影響「新 Node service 要不要設定這些變數」（不要），完全不代表要去舊 Laravel production service 上刪除或修改任何東西**——舊 service 在 cutover 完成、確認新 service 完全接手流量之前，應該維持原樣繼續運作。本次分析全程未觸碰舊 Laravel service 的任何設定。
+
+### 13.8 Security Rotation Checklist（正式 cutover 前必須完成，本節只列項目，不執行）
+
+以下三項**必須**在正式 cutover checklist 裡明確列出，且**不得**在任何文件（含本文件）中記錄實際 rotate 後的新值：
+
+- [ ] **Rotate production DB credential**（`DB_PASSWORD`）——目前這組密碼已經在對話中以明文分享/使用過，即使只在這次分析用於唯讀查詢，仍建議 cutover 前更換
+- [ ] **Rotate SMTP credential**（`MAIL_PASSWORD`，Gmail App Password）
+- [ ] **Generate fresh `JWT_SECRET`**——這不是「rotate」既有值（因為 Node 這邊從來沒有過 `JWT_SECRET`），而是**首次產生一把全新、只給 Node 用、任何人（含這次對話紀錄）都沒看過的隨機值**，用 `openssl rand -hex 32` 之類的方式在 Zeabur console 直接產生/貼上，不要先在本機草稿、對話、或任何檔案裡打過一次再貼過去
+
+### 13.9 Production Node Env Template（僅 key/placeholder，無真實值）
+
+```
+NODE_ENV=production
+PORT=<見 §13.2，第一輪先不設，視 staging 實測結果決定是否需要>
+
+DB_HOST=<見 §13.4，待 A/B 決策>
+DB_PORT=<隨 DB_HOST 決策>
+DB_USER=<沿用舊 DB_USERNAME 的值，rotate 後更新，見 §13.8>
+DB_PASSWORD=<rotate 後的新值，見 §13.8>
+DB_DATABASE=<沿用舊 DB_DATABASE 的值>
+DB_CONNECTION_LIMIT=10
+
+JWT_SECRET=<全新產生，見 §13.8，不可為空、不可沿用 APP_KEY>
+JWT_EXPIRES_IN=30d
+BCRYPT_SALT_ROUNDS=10
+
+CORS_ALLOWED_ORIGINS=<見 §13.3，待瀏覽器 Origin 實測確認>
+
+MAIL_HOST=<沿用舊值>
+MAIL_PORT=<沿用舊值>
+MAIL_USERNAME=<沿用舊值>
+MAIL_PASSWORD=<rotate 後的新值，見 §13.8>
+MAIL_ENCRYPTION=<沿用舊值>
+MAIL_FROM_ADDRESS=<見 §13.5 建議，PRODUCTION_MANUAL_VERIFY>
+MAIL_FROM_NAME=<沿用舊值>
+RECIPIENT_EMAIL=<沿用舊值>
+```
+
+此模板**不含任何真實值**，僅供 cutover 執行時對照填寫。
