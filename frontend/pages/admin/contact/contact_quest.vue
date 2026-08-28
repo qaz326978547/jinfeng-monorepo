@@ -22,7 +22,7 @@
                         {{ data.name }}
                     </li>
                     <li class="w-[30%] break-all pe-1 text-[11px] sm:text-[16px]">
-                        {{ data.info }}
+                        {{ stripHtml(data.info) }}
                     </li>
                     <li class="w-[10%] break-all text-[11px] sm:text-[16px]">
                         <input
@@ -79,6 +79,10 @@ useHead({
 });
 
 const faqData = ref<FAQData[] | null>(null);
+
+// info 是公開頁面用 v-html 渲染的富文本（見 FaqComponent.vue），這裡的列表只是
+// 給管理者快速預覽用途，去除標籤顯示純文字即可——編輯用的 textarea 仍是原始 HTML。
+const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '');
 
 const getFaqData = async () => {
     isLoading.value = true;
