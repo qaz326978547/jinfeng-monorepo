@@ -57,13 +57,15 @@
 
 ## 2. Frontend Env Matrix
 
+> **⚠️ 這個表格是 2026-08-27 修正前的原始分析快照，`NUXT_API_BASE_URL`／`VITE_GTM_ID` 兩列已經是舊名稱，不是現在程式碼實際讀取的 key——保留原樣只為了追溯，不要照抄。現行正確的三個變數名稱與最新發現的 Zeabur 設定錯誤，見 §14。**
+
 `frontend/` 沒有 Zod（或任何 runtime）schema 驗證環境變數，全部是散落在程式碼裡的 `process.env.X` / `import.meta.env.X` 直接存取，**沒有任何一個變數未設定時會讓應用程式 fail fast**——全部是「靜默使用 fallback 或靜默變成 `undefined`」。
 
 | 變數 | 用途 | Required? | Has default | Secret / Public | 實際存取位置 |
 |---|---|---|---|---|---|
-| `NUXT_API_BASE_URL` | Backend API base URL | **Production 下事實上必須設定** | ✅ `production` 分支無 fallback；只有非 production 分支 fallback 到 `http://127.0.0.1:9001` | Public（是 URL，非機密） | `store/usePublicStore.ts:9`、`nuxt.config.ts:77`（Vite dev proxy target，只影響 `nuxt dev`） |
+| `NUXT_API_BASE_URL`（已淘汰，見 §14） | Backend API base URL | **Production 下事實上必須設定** | ✅ `production` 分支無 fallback；只有非 production 分支 fallback 到 `http://127.0.0.1:9001` | Public（是 URL，非機密） | `store/usePublicStore.ts:9`、`nuxt.config.ts:77`（Vite dev proxy target，只影響 `nuxt dev`） |
 | `NUXT_PUBLIC_SITE_URL` | Canonical URL / SEO metadata | Optional | ✅ `https://laborservice5690.com` | Public | `nuxt.config.ts:35`（正確走 `runtimeConfig.public`） |
-| `VITE_GTM_ID` | Google Tag Manager container ID | Optional（缺少時 GTM 不啟用，只印一行 `console.error`，不是崩潰） | ❌ 無 | Public（GTM container ID 本身非機密） | `plugins/vue-gtm.client.ts`（正確走 Vite 標準 `import.meta.env.VITE_*`） |
+| `VITE_GTM_ID`（已淘汰，見 §14） | Google Tag Manager container ID | Optional（缺少時 GTM 不啟用，只印一行 `console.error`，不是崩潰） | ❌ 無 | Public（GTM container ID 本身非機密） | `plugins/vue-gtm.client.ts`（正確走 Vite 標準 `import.meta.env.VITE_*`） |
 | `NODE_ENV` | 判斷 production/非 production 分支 | 由 Zeabur/建置流程注入，非手動變數 | — | Public | `nuxt.config.ts`、`usePublicStore.ts`、`middleware/redirect-www.global.ts`、`server/middleware/blockBadPaths.ts` |
 
 ### 2.1 ⚠️ 重大發現——`vite.define: {'process.env': process.env}`（`nuxt.config.ts:69-72`）
@@ -156,10 +158,10 @@ CORS_ALLOWED_ORIGINS=https://laborservice5690.com
 
 > **✅ 已於 2026-08-27 更新，見 §11。** 以下 checklist 已同步新的變數名稱與 runtime-only 綁定結論；原始版本（要求 build-time 注入）保留在 git 歷史供追溯。
 
-- [ ] `NUXT_PUBLIC_API_BASE_URL=https://api.laborservice5690.com`（**只需在 container 啟動時可讀到即可，不再要求 build-time 注入**，見 §11.2 的實測結論；`NODE_ENV=production` 也只需同樣的 runtime 層級即可，兩者都是任何 PaaS 都支援的基本能力）
+- [ ] `NUXT_PUBLIC_API_BASE_URL=<正式後端公開網域>`（**只需在 container 啟動時可讀到即可，不再要求 build-time 注入**，見 §11.2 的實測結論；`NODE_ENV=production` 也只需同樣的 runtime 層級即可，兩者都是任何 PaaS 都支援的基本能力）
 - [ ] `NODE_ENV=production`
 - [ ] `NUXT_PUBLIC_SITE_URL=https://laborservice5690.com`（可省略，程式碼已有相同值的 fallback）
-- [ ] `NUXT_PUBLIC_GTM_ID`（若要啟用 GTM；不設定只會讓 GTM 不啟用，不影響其他功能）
+- [ ] `NUXT_PUBLIC_GTM_ID=GTM-WCWFPJZN`（若要啟用 GTM；不設定只會讓 GTM 不啟用，不影響其他功能）——**⚠️ 2026-08-28 發現 Zeabur 上實際設定的是 `NUXT_GTM_ID`（缺 `PUBLIC`），程式碼完全不會讀到這個名稱，GTM 目前沒有載入，需要人工把 key 改名，詳見 §14**
 - [ ] **部署方式建議採用 Zeabur Nuxt 自動偵測**（見 §11.3），但仍需要有 Zeabur 存取權限的人實際嘗試部署一次以確認自動偵測行為與這份 checklist 相符——這件事本身尚未執行。
 
 ---
@@ -455,5 +457,59 @@ MAIL_FROM_ADDRESS=<見 §13.5 建議，PRODUCTION_MANUAL_VERIFY>
 MAIL_FROM_NAME=<沿用舊值>
 RECIPIENT_EMAIL=<沿用舊值>
 ```
+
+---
+
+## 14. GTM 環境變數 Key 錯誤（2026-08-28 發現，仍待人工修正）
+
+### 14.1 問題
+
+正式 Zeabur frontend service 目前設定的是：
+
+```
+NUXT_GTM_ID=GTM-WCWFPJZN
+```
+
+但 `frontend/plugins/vue-gtm.client.ts` 讀的是 `useRuntimeConfig().public.gtmId`，對應的 runtime env key 不是 `NUXT_GTM_ID`。
+
+### 14.2 驗證方式（不是猜的，直接從編譯後的產物追）
+
+Nitro 的 `applyEnv()`（`node_modules/nitropack/dist/runtime/utils.env.mjs`）對巢狀 `runtimeConfig.public.gtmId` 的 key 轉換規則：
+
+```
+public.gtmId → subKey "public_gtmId" → snakeCase().toUpperCase() → "PUBLIC_GTM_ID"
+→ 實際讀取 process.env["NUXT_" + "PUBLIC_GTM_ID"] = NUXT_PUBLIC_GTM_ID
+```
+
+`.output/server/chunks/runtime.mjs`（本機實際 build 出來的產物）也直接確認了這個 app 的 nitro `envPrefix` 就是 `"NUXT_"`，`altPrefix` 同樣解析為 `"NUXT_"`——不是靠命名慣例推測，是從編譯後的程式碼追出來的。
+
+`NUXT_GTM_ID`（不帶 `PUBLIC`）只有在 `gtmId` 是**頂層** `runtimeConfig.gtmId`（不在 `.public` 底下）時才會被讀到，但目前程式碼把它放在 `runtimeConfig.public.gtmId`，所以 `NUXT_GTM_ID` 這個名稱從未被現在的程式碼讀取過。
+
+### 14.3 結論：GTM 目前在正式站沒有載入
+
+`process.env.NUXT_PUBLIC_GTM_ID` 在 Zeabur 上是 undefined → `applyEnv()` 找不到對應值 → `runtimeConfig.public.gtmId` 維持 `nuxt.config.ts` 裡的預設值 `''` → `plugins/vue-gtm.client.ts` 判斷 `!gtmId` 為真 → 直接 `return`，不掛載 GTM。正式站實測（DevTools Network）也確認沒有 `gtm.js` 請求。
+
+### 14.4 需要人工在 Zeabur 主控台執行的修正
+
+**這件事無法透過修改本 repo 的程式碼解決**——`NUXT_PUBLIC_GTM_ID` 已經是程式碼認得的正確名稱（`.env.example`／`README.md` 也已經是這個名稱），問題只在 Zeabur 上設定的 key 名稱錯誤。需要有 Zeabur 存取權限的人：
+
+1. 到 Zeabur frontend service 的 Environment Variables
+2. 把 `NUXT_GTM_ID=GTM-WCWFPJZN` 改名為 `NUXT_PUBLIC_GTM_ID=GTM-WCWFPJZN`（值不變，只改 key）
+3. 確認容器有重新啟動以套用新的環境變數（`NUXT_PUBLIC_*` 系列已於 §11.2 實測確認是 runtime 綁定，理論上重啟即可生效，不需要重新 build image；但 Zeabur 平台改 env 後是否自動重啟，需以其實際行為為準）
+4. 部署後用真實瀏覽器驗證（**不能用 curl**——`vue-gtm.client.ts` 是 `.client.ts`，只在瀏覽器端執行，SSR HTML 裡不會出現 GTM script 標籤）：
+   - DevTools → Network，篩選 `gtm.js`，應看到打到 `googletagmanager.com/gtm.js?id=GTM-WCWFPJZN` 且 200
+   - Console 打 `window.dataLayer`，應回傳陣列而非 `undefined`
+   - Console **不應**出現 `❌ [GTM] NUXT_PUBLIC_GTM_ID is not defined in .env!`
+   - 或直接用 GTM 容器（`GTM-WCWFPJZN`）後台的 Preview 模式連線驗證
+
+### 14.5 同時發現的其他 legacy key（建議一併清理，皆已確認與現行程式碼無關）
+
+| 變數 | 狀態 |
+|---|---|
+| `NUXT_GTM_ID` | 可刪除（key 名稱錯誤，改名為 `NUXT_PUBLIC_GTM_ID`，見上） |
+| `VITE_GTM_ID` | 可刪除，全 `frontend/` 原始碼 0 命中，是 Vite-only 舊前端遺留 |
+| `NUXT_API_BASE_URL` | 可刪除，全 `frontend/` 原始碼 0 命中，已於 §11 改用 `NUXT_PUBLIC_API_BASE_URL` |
+
+`JENFENG_BACK_HOST`／`MYSQL_HOST`／`REDIS_HOST`（見根目錄 `環境變數.md`）**與現行 frontend 無關**——frontend 完全沒有 DB／Redis 相關程式碼，且這幾個看起來是 Zeabur 內部私有網路服務參照格式，與 `NUXT_PUBLIC_API_BASE_URL` 要求的「瀏覽器可直接連的公開網址」用途不同。但這是 Zeabur **專案層級**的變數，本文件的分析範圍看不到這些變數是否還掛在其他 service（例如舊 Laravel 容器）底下，**刪除前建議先在 Zeabur 主控台確認歸屬，不要只憑本文件的程式碼推論就刪除**。
 
 此模板**不含任何真實值**，僅供 cutover 執行時對照填寫。
