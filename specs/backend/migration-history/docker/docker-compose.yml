@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: ../../  # future Node project root (this file is a reference to copy in)
+      dockerfile: migration-spec/docker/Dockerfile
+      target: development
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: local_dev_only
+      DB_DATABASE: jinfeng_local
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ../../:/app
+      - /app/node_modules
+    command: npm run dev
+
+  mysql:
+    image: mysql:8.0.33 # pinned to match the production Zeabur MySQL version (confirmed via SELECT VERSION())
+    environment:
+      MYSQL_ROOT_PASSWORD: local_dev_only
+      MYSQL_DATABASE: jinfeng_local
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-plocal_dev_only"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mysql_data:
+  redis_data:
+
+# Typical local workflow:
+#   docker compose up -d
+#   docker compose exec api npm run db:migrate
+#   docker compose exec api npm run db:verify
+#   docker compose exec api npm test

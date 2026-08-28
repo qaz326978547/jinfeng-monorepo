@@ -1,0 +1,8 @@
+-- migration-spec/sql/005-create-triggers.sql
+--
+-- CONFIRMED via read-only introspection (`SHOW TRIGGERS` — 0 rows, and
+-- information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() — 0 rows, meaning also no
+-- stored procedures/functions) that the production database has NO triggers and NO stored
+-- routines of any kind.
+--
+-- 不適用（Not applicable） — no statements to run.
