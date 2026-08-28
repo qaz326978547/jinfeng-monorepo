@@ -1,5 +1,5 @@
 <template>
-    <ul class="fixed bottom-[120px] right-0">
+    <ul class="fixed bottom-[120px] right-0 z-40">
         <li class="relative flex w-[50px] items-center justify-center rounded-l-lg bg-icon-yellow py-4">
             <a href="/#register" class="flex flex-col text-center text-[30px]" title="點擊立即報名">
                 <Icon name="majesticons:hand-pointer-2" width="30" height="30" class="" />
