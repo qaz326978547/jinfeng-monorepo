@@ -102,7 +102,8 @@
    目前全站預設分享圖暫用 `logo.webp`（真實存在的 CDN 圖片，非假圖），但不是理想的 1200×630 尺寸。待設計團隊提供正式分享圖後，於 `composables/useLaborSiteConfig.ts` 的 `defaultOgImage` 更新路徑（檔案內已標記 TODO）。
 
 2. **SEO landing page（`/labor-dispute`、`/labor-law-seminar`、`/severance-pay`、`/overtime-pay`、`/occupational-accident`、`/labor-inspection`、`/faq` 獨立擴充）**
-   依先前討論，這次先不建立，避免內容不足產生薄弱頁面。列入第二階段，待有足夠獨立內容素材時再規劃。
+
+   **2026-08-28 更新**：其中 `/labor-dispute`、`/occupational-accident` 兩頁已建立，見下方「五、2026-08-28 追加：labor-info 拆頁與 GTM 修正」。`/severance-pay`、`/overtime-pay`、`/labor-inspection`、`/labor-law-seminar` **仍未建立**——現有素材（`labor-info.vue` 原本的 5 個 tab）裡沒有足夠支撐這幾頁的獨立實質內容（加班費/資遣費只在圖片 alt 文字裡被提及過，段落正文從未展開計算規則；勞動檢查也只是「檢舉流程簡化」這種片段提及），依「內容不足不硬湊」原則暫不建立，待有更完整的素材再規劃。
 
 3. **Event（活動場次）結構化資料**
    `useSeoSchema.ts` 中的 `buildEventSchema()` 已建好，但因場次日期、地點目前僅存在於後台 `/contact-class` API 動態資料中，無可靠的公開場次資訊可用，因此尚未在任何頁面呼叫。待該 API 資料完整（有明確場次名稱、日期、地點）後即可直接串接，函式會在資料不完整時自動回傳 `null`，不會誤輸出結構化資料。
@@ -124,3 +125,21 @@
 2. **Google Search Console**：提交 `https://laborservice5690.com/sitemap.xml`，並用「URL 檢查」工具個別提交首頁與三個子頁面。
 3. **Rich Results Test**：驗證 `/faq` 頁面的 FAQPage 結構化資料是否正確顯示問答內容。
 4. **優先追蹤關鍵字**：勞資爭議、勞資糾紛、勞基法講座、企業勞動法、資遣費、加班費、職業災害、勞動檢查。
+
+---
+
+## 五、2026-08-28 追加：labor-info 拆頁與 GTM 修正
+
+### 稽核發現
+
+1. `labor-info.vue` 用 `currentLaborTab = ref(0)` 只渲染 5 個分頁中的第 1 個，其餘 4 個分頁的標題／段落／條列文字要點擊分頁按鈕才會進入 DOM，SSR 初始 HTML 裡完全不存在；即使 Googlebot 會執行 JS，它的 render pass 也不會模擬點擊，這 4 個分頁的內容在任何情境下都不會被索引。已對正式站 `curl` 逐一驗證：Tab 0 標題命中 1 次，Tab 1-4 標題全部命中 0 次。
+2. Zeabur 正式 frontend 的 GTM 環境變數設定成 `NUXT_GTM_ID`，但程式碼（`plugins/vue-gtm.client.ts`）讀的是 `useRuntimeConfig().public.gtmId`，實際對應的 key 是 `NUXT_PUBLIC_GTM_ID`——已從編譯後的 `.output/server/chunks/runtime.mjs` 追出 Nitro `applyEnv()` 的巢狀 key 轉換規則確認，不是猜測。兩者名稱不同，正式站 GTM 目前沒有載入。
+
+### 已完成
+
+- 新增 `/labor-dispute`（勞資爭議與訴訟舉證責任，內容取自原 Tab 1「勞動事件法」+ Tab 3「勞資爭議」）、`/occupational-accident`（職業災害保險與職災補償，內容取自原 Tab 2「職災保險法」），皆有獨立 title/description/canonical/OG/H1/BreadcrumbList，正文為 SSR 可見的真實文字（非圖片、非點擊後才出現）。
+- `labor-info.vue` 改為 hub page：保留原「講座介紹」內容，新增三張同時 SSR 渲染的主題摘要卡（連結到上述兩個新頁 + 課程報名區），移除 client-only 分頁點擊邏輯。
+- `/severance-pay`、`/overtime-pay`、`/labor-inspection`、`/labor-law-seminar` 因現有素材不足，本次不建立（見上方「三、尚未實作」第 2 項更新）。
+- GTM：程式碼本身無需修改（`gtmId` 一直都正確走 `runtimeConfig.public`，未 hardcode），問題純粹是 Zeabur 上的 env key 名稱錯誤，需人工把 `NUXT_GTM_ID` 改名為 `NUXT_PUBLIC_GTM_ID`（詳見 `specs/backend/production-env-readiness.md` §14）。
+
+完整實作報告（新頁 title/description、internal link、sitemap、structured data、build/curl 驗證結果）見對話紀錄，不重複寫入本文件。

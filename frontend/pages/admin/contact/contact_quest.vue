@@ -21,7 +21,7 @@
                     <li class="w-[45%] break-all pe-1 text-[11px] sm:text-[16px]">
                         {{ data.name }}
                     </li>
-                    <li class="w-[30%] break-all pe-1 text-[11px] sm:text-[16px]">
+                    <li class="w-[30%] break-all max-h-[300px] overflow-auto pe-1 text-[11px] sm:text-[16px]">
                         {{ stripHtml(data.info) }}
                     </li>
                     <li class="w-[10%] break-all text-[11px] sm:text-[16px]">
