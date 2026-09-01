@@ -44,6 +44,15 @@ const envSchema = z.object({
   MAIL_FROM_ADDRESS: z.string().default('no-reply@example.com'),
   MAIL_FROM_NAME: z.string().default('Jinfeng'),
   RECIPIENT_EMAIL: z.string().default(''),
+
+  // AWS S3 is optional at the schema level, same rationale as MAIL_* above: an unset
+  // AWS_S3_BUCKET means "S3 not configured" (local dev, or before Ops provisions an IAM
+  // user), not a startup failure. Endpoints that need S3 (upload-url, delete) must handle
+  // a null S3 client — see infrastructure/storage/s3-client.ts.
+  AWS_REGION: z.string().default(''),
+  AWS_S3_BUCKET: z.string().default(''),
+  AWS_ACCESS_KEY_ID: z.string().default(''),
+  AWS_SECRET_ACCESS_KEY: z.string().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

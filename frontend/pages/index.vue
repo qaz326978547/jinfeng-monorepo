@@ -5,45 +5,51 @@
       id="hero"
       class="relative bg-blue-900 pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden min-h-[600px] flex items-center"
     >
-      <!-- Background Slides -->
+      <!-- 輪播圖區域：資料來自 GET /api/v2/carousels，空陣列或 API 失敗時僅不顯示背景圖，不影響其餘版面 -->
       <div
+        v-for="(slide, index) in carouselSlides"
+        :key="slide.id"
         :class="`absolute inset-0 transition-opacity duration-1000 ${
-          currentHeroSlide === 0 ? 'opacity-20' : 'opacity-0'
+          currentHeroSlide === index ? 'opacity-40' : 'opacity-0'
         }`"
       >
-        <svg
-          class="h-full w-full bg-blue-800"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
+        <NuxtLink
+          v-if="slide.linkType === 'internal' && slide.linkUrl"
+          :to="slide.linkUrl"
+          class="block h-full w-full"
         >
-          <path d="M0 100 L100 0 L100 100 Z" fill="#1e3a8a" />
-        </svg>
-      </div>
-      <div
-        :class="`absolute inset-0 transition-opacity duration-1000 ${
-          currentHeroSlide === 1 ? 'opacity-20' : 'opacity-0'
-        }`"
-      >
-        <svg
-          class="h-full w-full bg-indigo-900"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
+          <img
+            :src="slide.imageUrl"
+            :alt="slide.title"
+            class="h-full w-full object-cover"
+            :loading="index === 0 ? 'eager' : 'lazy'"
+            :fetchpriority="index === 0 ? 'high' : 'auto'"
+          />
+        </NuxtLink>
+        <a
+          v-else-if="slide.linkType === 'external' && slide.linkUrl"
+          :href="slide.linkUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="block h-full w-full"
         >
-          <circle cx="50" cy="50" r="40" fill="#312e81" />
-        </svg>
-      </div>
-      <div
-        :class="`absolute inset-0 transition-opacity duration-1000 ${
-          currentHeroSlide === 2 ? 'opacity-20' : 'opacity-0'
-        }`"
-      >
-        <svg
-          class="h-full w-full bg-slate-800"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-        >
-          <rect x="20" y="20" width="60" height="60" fill="#1e293b" />
-        </svg>
+          <img
+            :src="slide.imageUrl"
+            :alt="slide.title"
+            class="h-full w-full object-cover"
+            :loading="index === 0 ? 'eager' : 'lazy'"
+            :fetchpriority="index === 0 ? 'high' : 'auto'"
+          />
+        </a>
+        <div v-else class="h-full w-full">
+          <img
+            :src="slide.imageUrl"
+            :alt="slide.title"
+            class="h-full w-full object-cover"
+            :loading="index === 0 ? 'eager' : 'lazy'"
+            :fetchpriority="index === 0 ? 'high' : 'auto'"
+          />
+        </div>
       </div>
 
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center">
@@ -75,13 +81,13 @@
         </div>
 
         <!-- Carousel Indicators -->
-        <div class="flex justify-center mt-12 space-x-2">
+        <div v-if="carouselSlides.length > 1" class="flex justify-center mt-12 space-x-2">
           <button
-            v-for="index in 3"
-            :key="index"
-            @click="currentHeroSlide = index - 1"
+            v-for="(slide, index) in carouselSlides"
+            :key="slide.id"
+            @click="currentHeroSlide = index"
             :class="`w-3 h-3 rounded-full transition-all ${
-              currentHeroSlide === index - 1 ? 'bg-amber-400 w-6' : 'bg-white/50'
+              currentHeroSlide === index ? 'bg-amber-400 w-6' : 'bg-white/50'
             }`"
           />
         </div>
@@ -125,6 +131,7 @@
 
 <script setup lang="ts">
 import { usePublicStore } from "@/store/usePublicStore";
+import type { PublicCarouselData } from "@/api/interface/carousel";
 
 const { apiBaseUrl } = storeToRefs(usePublicStore());
 
@@ -139,6 +146,20 @@ usePageSeo({
     "專為企業老闆、人資主管與管理者設計的勞資爭議講座，解析勞動契約、加班費、資遣費、職業災害、勞動檢查及勞資糾紛預防，協助企業降低勞動法令風險。",
   path: "/",
 });
+
+// 首頁輪播圖：改由後台管理，前台只讀取目前啟用中的資料。
+// useFetch 失敗時不會 throw（跟 FaqComponent.vue 的既有用法一致），data 會是 null，
+// error 只用來判斷 fallback，不會讓整頁 500。
+const { data: carouselData } = await useFetch<PublicCarouselData[]>("/carousels", {
+  method: "GET",
+  baseURL: apiBaseUrl.value,
+  headers: {
+    "Content-Type": "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+  },
+});
+
+const carouselSlides = computed(() => carouselData.value ?? []);
 
 // Hero Carousel State
 const currentHeroSlide = ref(0);
@@ -197,10 +218,14 @@ const services = [
   },
 ];
 
-// Hero Carousel Auto-play
+// Hero Carousel Auto-play（只有 2 張以上時才需要輪播）
 onMounted(() => {
+  if (carouselSlides.value.length < 2) {
+    return;
+  }
+
   const timer = setInterval(() => {
-    currentHeroSlide.value = (currentHeroSlide.value + 1) % 3;
+    currentHeroSlide.value = (currentHeroSlide.value + 1) % carouselSlides.value.length;
   }, 5000);
 
   onUnmounted(() => clearInterval(timer));

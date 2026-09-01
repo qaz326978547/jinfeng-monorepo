@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Pool } from 'mysql2/promise';
 import type { Transporter } from 'nodemailer';
 import type { Logger } from 'pino';
+import type { S3Client } from '@aws-sdk/client-s3';
 import { createAuthRouter } from '../modules/auth/auth.routes';
 import { createContactRouter } from '../modules/contact/contact.routes';
 import { createAdminContactRouter } from '../modules/contact/admin-contact.routes';
@@ -11,8 +12,11 @@ import { createContactListRouter } from '../modules/contact-list/contact-list.ro
 import { createContactQuestRouter } from '../modules/contact-quest/contact-quest.routes';
 import { createFaqRouter } from '../modules/faq/faq.routes';
 import { createAdminFaqRouter } from '../modules/faq/admin-faq.routes';
+import { createCarouselRouter } from '../modules/carousel/carousel.routes';
+import { createAdminCarouselRouter } from '../modules/carousel/admin-carousel.routes';
 import { createSeoRouter } from '../modules/seo/seo.routes';
 import type { MailConfig } from '../infrastructure/mail/mail.config';
+import type { S3Config } from '../infrastructure/storage/s3.config';
 import { createHealthRouter } from './health/health.route';
 
 export const API_V2_BASE_PATH = '/api/v2';
@@ -25,6 +29,8 @@ export interface RouterDeps {
   mailConfig: MailConfig;
   /** Test-only mail transport override — see modules/contact/contact.routes.ts. */
   mailTransport?: Transporter | null | undefined;
+  s3Client: S3Client | null;
+  s3Config: S3Config;
   logger: Logger;
 }
 
@@ -77,6 +83,18 @@ export function createRootRouter(deps: RouterDeps): Router {
   // New Node/Admin feature — no confirmed legacy FAQ admin contract (see
   // specs/backend/laravel-to-node-parity.md), not legacy parity work.
   apiV2.use('/admin/faq', createAdminFaqRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }));
+  // Carousel: also a brand-new Node/Admin feature, no legacy contract.
+  apiV2.use('/carousels', createCarouselRouter({ pool: deps.pool }));
+  apiV2.use(
+    '/admin/carousels',
+    createAdminCarouselRouter({
+      pool: deps.pool,
+      jwtSecret: deps.jwtSecret,
+      s3Client: deps.s3Client,
+      s3Config: deps.s3Config,
+      logger: deps.logger,
+    }),
+  );
   // Remaining admin/* writes (POST/PUT/DELETE contact-class, DELETE contact)
   // mount here in a later batch; PUT /admin/contact/{id} is deferred (§11).
   router.use(API_V2_BASE_PATH, apiV2);

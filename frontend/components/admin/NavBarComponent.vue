@@ -22,6 +22,14 @@
                     </li>
                 </ul>
             </li>
+            <li class="mt-4 rounded-3xl text-center">
+                <p class="rounded-t-md bg-admin-primary p-2 text-white">首頁設定</p>
+                <ul class="rounded-b-md bg-white p-2 text-admin-content">
+                    <li class="my-2">
+                        <nuxt-link class="py-2" to="/admin/carousel"> 輪播圖管理 </nuxt-link>
+                    </li>
+                </ul>
+            </li>
         </ul>
         <button type="button" class="mt-4 w-full rounded-md bg-white py-2 text-admin-content" @click="logout">
             登出
