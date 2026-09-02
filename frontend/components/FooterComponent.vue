@@ -5,7 +5,7 @@
         <!-- 公司資訊 -->
         <div>
           <h2 class="text-2xl font-bold text-white mb-4">
-            金豐集團<span class="text-amber-500">.</span>
+            金豐集團
           </h2>
           <p class="text-sm mb-6">協助兩岸企業降低人事成本,創造勞資雙贏</p>
 

@@ -96,7 +96,7 @@
             v-if="showModal"
             class="bg-black-opacity fixed inset-0 z-40 flex items-center justify-center overflow-y-auto p-4"
         >
-            <div class="w-full max-w-[640px] rounded-md bg-white p-6">
+            <div class="w-full max-w-[640px] max-h-[650px] overflow-auto rounded-md bg-white p-6">
                 <h4 class="mb-4 text-[20px] font-bold">{{ editingId ? '編輯輪播圖' : '新增輪播圖' }}</h4>
 
                 <div class="mb-4">
@@ -108,7 +108,7 @@
                 <div class="mb-4 rounded border p-3">
                     <label class="mb-1 block text-[14px] font-bold">PC 圖片</label>
                     <p class="mb-2 text-[12px] text-[#999]">建議尺寸：1920 × 1080 px，比例：16:9</p>
-                    <input type="file" accept="image/jpeg,image/png,image/webp" @change="onFileSelected('desktop', $event)" />
+                    <input class="w-full" type="file" accept="image/jpeg,image/png,image/webp" @change="onFileSelected('desktop', $event)" />
                     <img
                         v-if="previewUrl('desktop')"
                         :src="previewUrl('desktop') ?? undefined"
@@ -124,7 +124,7 @@
                 <div class="mb-4 rounded border p-3">
                     <label class="mb-1 block text-[14px] font-bold">Mobile 圖片</label>
                     <p class="mb-2 text-[12px] text-[#999]">建議尺寸：700 × 800 px，比例：7:8</p>
-                    <input type="file" accept="image/jpeg,image/png,image/webp" @change="onFileSelected('mobile', $event)" />
+                    <input class="w-full" type="file" accept="image/jpeg,image/png,image/webp" @change="onFileSelected('mobile', $event)" />
                     <img
                         v-if="previewUrl('mobile')"
                         :src="previewUrl('mobile') ?? undefined"

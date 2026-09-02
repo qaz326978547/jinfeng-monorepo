@@ -1,9 +1,9 @@
 <template>
-  <div class="min-h-screen bg-slate-50">
+  <div>
     <!-- Hero Section (Carousel) -->
     <header
       id="hero"
-      class="relative mt-[50px] overflow-hidden"
+      class="relative mt-[20px] overflow-hidden"
       :class="carouselSlides.length === 0 ? 'flex items-center min-h-[300px] pb-20 lg:pt-48 lg:pb-32' : ''"
     >
       <!-- 輪播圖區域：資料來自 GET /api/v2/carousels，空陣列或 API 失敗時 fallback 到下方靜態文案。 -->
@@ -238,15 +238,15 @@ const services = [
 
 // Hero Carousel Auto-play（只有 2 張以上時才需要輪播）
 onMounted(() => {
-  // if (carouselSlides.value.length < 2) {
-  //   return;
-  // }
+  if (carouselSlides.value.length < 2) {
+    return;
+  }
 
-  // const timer = setInterval(() => {
-  //   currentHeroSlide.value = (currentHeroSlide.value + 1) % carouselSlides.value.length;
-  // }, 5000);
+  const timer = setInterval(() => {
+    currentHeroSlide.value = (currentHeroSlide.value + 1) % carouselSlides.value.length;
+  }, 5000);
 
-  // onUnmounted(() => clearInterval(timer));
+  onUnmounted(() => clearInterval(timer));
 });
 </script>
 
