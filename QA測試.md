@@ -237,6 +237,30 @@ curl -X POST http://localhost:8080/api/v2/auth/register \
 - [ ] (UI) 點刪除 → 跳出確認對話框，取消不會刪除；確認後該筆從列表消失
 - [ ] (UI) 前台 `/faq` 頁面（`FaqComponent.vue`）→ 確認剛剛在後台的異動同步顯示
 
+### 5.5c Admin — Carousel（新功能，非 Laravel legacy parity，desktop/mobile 雙圖片，API + UI + S3）
+
+每一筆輪播圖同時帶兩張圖（desktop 1920×1080 16:9、mobile 700×800 7:8），不是兩筆資料。圖片實體存 AWS S3（私有 bucket），公開讀取走 CloudFront（`AWS_S3_PUBLIC_BASE_URL`）。以下測試需要本機 `.env`（或 `docker-compose.yml` 的 `${AWS_*}` 插值來源）已設定真實 AWS credential，否則 upload-url/delete 一律回 503（見 §6）。
+
+- [ ] (API) `GET /api/v2/carousels`（public，不需 token）→ 200，裸陣列，每筆只有 `id/title/desktopImageUrl/mobileImageUrl/linkType/linkUrl/sortOrder/isActive`，**沒有** `desktopImageKey`/`mobileImageKey`
+- [ ] (API) `POST /api/v2/admin/carousels/upload-url`（body `{"fileName":"a.webp","contentType":"image/webp","fileSize":123456,"variant":"desktop"}`）→ 200，`imageKey` 開頭為 `carousel/desktop/`；`variant:"mobile"` → `imageKey` 開頭為 `carousel/mobile/`
+- [ ] (API) `variant` 傳 `"tablet"` 或缺漏 → 400
+- [ ] (API) 用拿到的 `uploadUrl` 直接 `PUT` 圖片檔案到 S3（不經過後端、不經過 CloudFront）→ 200/204
+- [ ] (API) 上傳完成後，用瀏覽器打開 `${AWS_S3_PUBLIC_BASE_URL}/<imageKey>`（CloudFront）→ 圖片可正常讀取
+- [ ] (API) `POST /api/v2/admin/carousels`（body 帶 `desktopImageKey`/`mobileImageKey`，兩者皆為上一步拿到的 key）→ 201，回傳的 `desktopImageUrl`/`mobileImageUrl` 是 `${AWS_S3_PUBLIC_BASE_URL}/<key>`（伺服器產生，不是自己傳的）
+- [ ] (API) 缺 `desktopImageKey` 或 `mobileImageKey` → 400
+- [ ] (API) `PUT /api/v2/admin/carousels/{id}` 只換 `desktopImageKey`（`mobileImageKey` 沿用原值）→ 200，且**只有舊 desktop 圖**從 S3 被刪除，mobile 圖還在
+- [ ] (API) 同理測試「只換 mobile」「兩張都換」「兩張都不換」四種組合
+- [ ] (API) `DELETE /api/v2/admin/carousels/{id}` → 200，且 S3 上的 desktop、mobile 兩個 object **都被刪除**，之後 CloudFront URL 變成 404/403
+- [ ] (UI) 用 §4.1 的 admin 帳號登入後，訪問 `/admin/carousel` → 看到輪播圖列表（畫面標題「輪播圖管理」），每筆同時顯示 PC/Mobile 兩張縮圖
+- [ ] (UI) 點「新增輪播圖」→ PC、Mobile 兩個圖片欄位都不選檔案直接送出 → 兩者皆須有錯誤訊息擋下
+- [ ] (UI) 只選 PC 圖片送出（Mobile 空白）→ 擋下（新增時兩張都必填）
+- [ ] (UI) PC、Mobile 都選好圖片 → 上傳時各自顯示 progress bar → 送出成功 → 列表出現新資料
+- [ ] (UI) 編輯既有資料，兩張圖都不重新選檔 → 直接送出成功（沿用原圖，不用重新上傳）
+- [ ] (UI) 編輯既有資料，只換 PC 圖 → 儲存後列表的 PC 縮圖更新，Mobile 縮圖不變
+- [ ] (UI) 點刪除 → 確認對話框 → 確認後該筆從列表消失
+- [ ] (UI) 前台首頁 `http://localhost:3000/`：瀏覽器視窗寬度調到 767px 以下 → Network 分頁確認**只下載 mobile 圖**（不會先抓 desktop 圖再切換）；調到 768px 以上 → 只下載 desktop 圖
+- [ ] (UI) 前台首頁在 375 / 700 / 767 / 768 / 1024 / 1440 / 1920 幾個寬度下，輪播圖區塊比例正確（767 以下 7:8、768 以上 16:9），且切換寬度時**不會**看到明顯的版面跳動（CLS）
+
 ### 5.6 Frontend Auth UX（UI，瀏覽器操作 http://localhost:3000）
 
 - [ ] 直接訪問 `/admin/contact`（未登入）→ 自動導回 `/auth`（route guard）

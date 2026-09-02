@@ -6,15 +6,18 @@ function carouselRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 1,
     title: '講座宣傳圖',
-    imageUrl: 'https://bucket.s3.ap-northeast-1.amazonaws.com/carousel/a.webp',
+    desktopImageUrl: 'https://cdn.laborservice5690.com/carousel/desktop/a.webp',
+    mobileImageUrl: 'https://cdn.laborservice5690.com/carousel/mobile/a.webp',
     linkType: 'internal',
     linkUrl: '/about',
+    sortOrder: 1,
+    isActive: 1,
     ...overrides,
   };
 }
 
 describe('GET /api/v2/carousels', () => {
-  it('requires no auth and returns 200 with a bare array', async () => {
+  it('requires no auth and returns 200 with a bare array of {..., isActive: true} (never *ImageKey)', async () => {
     const rows = [carouselRow()];
     const pool = createMockPool({ query: vi.fn().mockResolvedValue([rows, []]) });
     const { app } = buildTestApp({ pool });
@@ -22,10 +25,12 @@ describe('GET /api/v2/carousels', () => {
     const res = await request(app).get('/api/v2/carousels');
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(rows);
+    expect(res.body).toEqual([{ ...rows[0], isActive: true }]);
+    expect(res.body[0]).not.toHaveProperty('desktopImageKey');
+    expect(res.body[0]).not.toHaveProperty('mobileImageKey');
   });
 
-  it('only selects active rows, ordered by sort_order then id', async () => {
+  it('only selects active rows, ordered by sort_order then id, and never selects the image keys', async () => {
     const queryFn = vi.fn().mockResolvedValue([[], []]);
     const pool = createMockPool({ query: queryFn });
     const { app } = buildTestApp({ pool });
@@ -46,5 +51,29 @@ describe('GET /api/v2/carousels', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
+  });
+
+  it('excludes inactive rows (filtering happens in SQL, but this pins the response contract)', async () => {
+    const rows = [carouselRow({ id: 1, isActive: 1 })];
+    const pool = createMockPool({ query: vi.fn().mockResolvedValue([rows, []]) });
+    const { app } = buildTestApp({ pool });
+
+    const res = await request(app).get('/api/v2/carousels');
+
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].isActive).toBe(true);
+  });
+
+  it('preserves sort_order/id ASC ordering as returned by the query', async () => {
+    const rows = [
+      carouselRow({ id: 2, title: 'B', sortOrder: 1 }),
+      carouselRow({ id: 1, title: 'A', sortOrder: 2 }),
+    ];
+    const pool = createMockPool({ query: vi.fn().mockResolvedValue([rows, []]) });
+    const { app } = buildTestApp({ pool });
+
+    const res = await request(app).get('/api/v2/carousels');
+
+    expect(res.body.map((row: { title: string }) => row.title)).toEqual(['B', 'A']);
   });
 });

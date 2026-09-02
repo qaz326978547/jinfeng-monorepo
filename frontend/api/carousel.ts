@@ -1,5 +1,10 @@
 import { $http, asyncDo, isResponseOK } from '@/utils/http';
-import type { CarouselData, CarouselWritePayload, UploadUrlResponse } from './interface/carousel';
+import type {
+    CarouselData,
+    CarouselImageVariant,
+    CarouselWritePayload,
+    UploadUrlResponse
+} from './interface/carousel';
 
 // 後台輪播圖管理
 export namespace CarouselAdminApi {
@@ -55,14 +60,16 @@ export namespace CarouselAdminApi {
     }
 
     /**
-     * 取得圖片上傳用的 S3 Presigned URL
+     * 取得圖片上傳用的 S3 Presigned URL。variant 決定 backend 產生的 S3 key 前綴
+     * （carousel/desktop/... 或 carousel/mobile/...）。
      */
-    export async function requestUploadUrl(file: File) {
+    export async function requestUploadUrl(file: File, variant: CarouselImageVariant) {
         const [err, result] = await asyncDo(
             $http<UploadUrlResponse>('post', '/admin/carousels/upload-url', {
                 fileName: file.name,
                 contentType: file.type,
-                fileSize: file.size
+                fileSize: file.size,
+                variant
             })
         );
         if (!isResponseOK(err, result)) {

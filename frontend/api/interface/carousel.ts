@@ -1,20 +1,28 @@
 export type CarouselLinkType = 'internal' | 'external' | 'none';
 
-// 前台首頁使用（GET /carousels 只回傳實際需要的欄位）
+// 對應 backend generateCarouselImageKey 的兩種前綴：carousel/desktop/{uuid}.ext、carousel/mobile/{uuid}.ext
+export type CarouselImageVariant = 'desktop' | 'mobile';
+
+// 前台首頁使用（GET /carousels 只回傳實際需要的欄位，不含 *ImageKey）
 export interface PublicCarouselData {
     id: number;
     title: string;
-    imageUrl: string;
+    desktopImageUrl: string;
+    mobileImageUrl: string;
     linkType: CarouselLinkType;
     linkUrl: string | null;
+    sortOrder: number;
+    isActive: boolean;
 }
 
 // 後台管理使用（GET/POST/PUT /admin/carousels）
 export interface CarouselData {
     id: number;
     title: string;
-    imageKey: string;
-    imageUrl: string;
+    desktopImageKey: string;
+    desktopImageUrl: string;
+    mobileImageKey: string;
+    mobileImageUrl: string;
     linkType: CarouselLinkType;
     linkUrl: string | null;
     sortOrder: number;
@@ -23,10 +31,12 @@ export interface CarouselData {
     updatedAt: string;
 }
 
+// 只送 *ImageKey，不送 *ImageUrl —— imageUrl 一律由 backend 依 AWS_S3_PUBLIC_BASE_URL 產生，
+// 前端不可能（也不應該）自己組出可信任的圖片網址。
 export interface CarouselWritePayload {
     title: string;
-    imageUrl: string;
-    imageKey: string;
+    desktopImageKey: string;
+    mobileImageKey: string;
     linkType: CarouselLinkType;
     linkUrl: string | null;
     sortOrder: number;

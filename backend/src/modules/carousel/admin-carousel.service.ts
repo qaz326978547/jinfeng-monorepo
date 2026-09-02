@@ -26,18 +26,6 @@ export interface UploadUrlResult {
 
 export type DeleteCarouselResult = 'deleted' | 'not_found';
 
-function toWriteInput(input: CarouselWriteRequest): CarouselWriteInput {
-  return {
-    title: input.title,
-    imageUrl: input.imageUrl,
-    imageKey: input.imageKey,
-    linkType: input.linkType,
-    linkUrl: input.linkType === 'none' ? null : (input.linkUrl ?? null),
-    sortOrder: input.sortOrder,
-    isActive: input.isActive,
-  };
-}
-
 export class AdminCarouselService {
   constructor(
     private readonly repository: CarouselRepository,
@@ -50,17 +38,44 @@ export class AdminCarouselService {
     return this.repository.findAllForAdmin();
   }
 
+  /**
+   * Both desktopImageUrl/mobileImageUrl are always derived from AWS_S3_PUBLIC_BASE_URL +
+   * the client-supplied key — never trusted from the request body (see
+   * admin-carousel.schemas.ts). This requires the CDN origin to be configured even for a
+   * metadata-only write, since every write recomputes both URLs from their keys.
+   */
+  private toWriteInput(input: CarouselWriteRequest): CarouselWriteInput {
+    if (!this.s3Config.publicBaseUrl) {
+      throw new S3NotConfiguredError();
+    }
+    return {
+      title: input.title,
+      desktopImageKey: input.desktopImageKey,
+      desktopImageUrl: buildCarouselImageUrl(this.s3Config.publicBaseUrl, input.desktopImageKey),
+      mobileImageKey: input.mobileImageKey,
+      mobileImageUrl: buildCarouselImageUrl(this.s3Config.publicBaseUrl, input.mobileImageKey),
+      linkType: input.linkType,
+      linkUrl: input.linkType === 'none' ? null : (input.linkUrl ?? null),
+      sortOrder: input.sortOrder,
+      isActive: input.isActive,
+    };
+  }
+
   async create(input: CarouselWriteRequest): Promise<Carousel> {
-    return this.repository.create(toWriteInput(input));
+    return this.repository.create(this.toWriteInput(input));
   }
 
   /**
-   * Update-image flow (requirement order: upload new image first, update DB, only then
-   * delete the old image — never delete before the DB write is confirmed). If the old
-   * image's S3 delete fails after a successful DB update, it is logged and swallowed
-   * rather than failing the request: the DB write already succeeded and is the source of
-   * truth, so surfacing a 500 here would be misleading. The tradeoff is an orphaned S3
-   * object on failure, which is an acceptable, logged inconsistency (see plan §11).
+   * Update flow (requirement order: upload new image(s) first — done by the client calling
+   * upload-url + PUT to S3 before this request — update DB, only then delete whichever old
+   * image(s) were actually replaced; never delete before the DB write is confirmed).
+   *
+   * Desktop and mobile are diffed independently: unchanged/desktop-only/mobile-only/both are
+   * all just "the client resent the same key" vs "the client resent a different key" per
+   * image, so no special-casing per combination is needed. A failed cleanup of an old image
+   * is logged and swallowed rather than failing the request — the DB write already succeeded
+   * and is the source of truth, so surfacing a 500 here would be misleading. The tradeoff is
+   * an orphaned S3 object on failure, an acceptable, logged inconsistency (see plan §11).
    */
   async update(id: number, input: CarouselWriteRequest): Promise<Carousel | null> {
     const previous = await this.repository.findById(id);
@@ -68,26 +83,42 @@ export class AdminCarouselService {
       return null;
     }
 
-    const updated = await this.repository.update(id, toWriteInput(input));
-    if (updated && previous.imageKey !== updated.imageKey) {
+    const updated = await this.repository.update(id, this.toWriteInput(input));
+    if (!updated) {
+      return null;
+    }
+
+    const replacedImageKeys: string[] = [];
+    if (previous.desktopImageKey !== updated.desktopImageKey) {
+      replacedImageKeys.push(previous.desktopImageKey);
+    }
+    if (previous.mobileImageKey !== updated.mobileImageKey) {
+      replacedImageKeys.push(previous.mobileImageKey);
+    }
+
+    for (const imageKey of replacedImageKeys) {
       try {
-        await this.deleteImageFromS3(previous.imageKey);
+        await this.deleteImageFromS3(imageKey);
       } catch (error) {
         this.logger.error(
-          { err: error, imageKey: previous.imageKey, carouselId: id },
+          { err: error, imageKey, carouselId: id },
           'failed to delete replaced carousel image from S3 — orphaned object left behind',
         );
       }
     }
+
     return updated;
   }
 
   /**
-   * Delete flow (requirement order): read the record, delete the S3 object, only then
+   * Delete flow (requirement order): read the record, delete BOTH S3 objects, only then
    * delete the DB row. A real S3 failure (permissions/network — DeleteObjectCommand does
-   * NOT error when the key is simply already missing, S3 treats that as success) throws
-   * and propagates to a 500, leaving the DB row intact so there is no "deleted from DB but
-   * maybe still in S3, maybe not" ambiguity.
+   * NOT error when the key is simply already missing, S3 treats that as success) throws and
+   * propagates to a 500, leaving the DB row intact — no "deleted from DB but maybe still in
+   * S3" ambiguity. If desktop deletes but mobile then fails, the DB row (with both keys)
+   * still exists and a retry is safe: re-deleting the already-gone desktop key is a no-op,
+   * and mobile gets another attempt — there is no distributed-transaction primitive across
+   * S3 + MySQL, so this retry-is-idempotent property is the practical consistency guarantee.
    */
   async deleteById(id: number): Promise<DeleteCarouselResult> {
     const existing = await this.repository.findById(id);
@@ -95,7 +126,8 @@ export class AdminCarouselService {
       return 'not_found';
     }
 
-    await this.deleteImageFromS3(existing.imageKey);
+    await this.deleteImageFromS3(existing.desktopImageKey);
+    await this.deleteImageFromS3(existing.mobileImageKey);
 
     const deleted = await this.repository.deleteById(id);
     if (!deleted) {
@@ -122,11 +154,13 @@ export class AdminCarouselService {
   }
 
   async createUploadUrl(input: UploadUrlRequest): Promise<UploadUrlResult> {
-    if (!this.s3Client) {
+    // Presigned PUT still needs a real S3Client (bucket/region/credentials); the resulting
+    // public imageUrl separately needs the CloudFront origin — both must be configured.
+    if (!this.s3Client || !this.s3Config.publicBaseUrl) {
       throw new S3NotConfiguredError();
     }
 
-    const imageKey = generateCarouselImageKey(input.contentType);
+    const imageKey = generateCarouselImageKey(input.variant, input.contentType);
     const command = new PutObjectCommand({
       Bucket: this.s3Config.bucket,
       Key: imageKey,
@@ -140,6 +174,8 @@ export class AdminCarouselService {
 
     let uploadUrl: string;
     try {
+      // Presigned URL is signed straight against S3 (bucket + region + credentials) — never
+      // routed through CloudFront, which only serves reads.
       uploadUrl = await getSignedUrl(this.s3Client, command, {
         expiresIn: UPLOAD_URL_EXPIRY_SECONDS,
       });
@@ -151,7 +187,7 @@ export class AdminCarouselService {
     return {
       uploadUrl,
       imageKey,
-      imageUrl: buildCarouselImageUrl(this.s3Config.bucket, this.s3Config.region, imageKey),
+      imageUrl: buildCarouselImageUrl(this.s3Config.publicBaseUrl, imageKey),
     };
   }
 }

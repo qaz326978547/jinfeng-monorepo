@@ -291,44 +291,62 @@ components:
         Admin-facing representation of a homepage carousel slide. New Node/Admin feature, no
         legacy table or contract to mirror — field names are camelCase (unlike Contact/Faq,
         which mirror Laravel Eloquent's snake_case JSON) per this feature's own requirements.
+        Each slide carries TWO independent images (desktop 1920x1080 16:9, mobile 700x800
+        7:8) — one carousel row, not two — the frontend picks the right one via a CSS
+        <picture> breakpoint (max-width: 767px), not a separate carousel entry per device.
       properties:
         id: { type: integer }
         title: { type: string }
-        imageKey: { type: string, description: "Backend-generated S3 object key, e.g. carousel/{uuid}.webp — never client-supplied." }
-        imageUrl: { type: string, format: uri }
+        desktopImageKey: { type: string, description: "Backend-generated S3 object key, e.g. carousel/desktop/{uuid}.webp — never client-supplied." }
+        desktopImageUrl: { type: string, format: uri, description: "CloudFront URL, derived server-side from AWS_S3_PUBLIC_BASE_URL + desktopImageKey." }
+        mobileImageKey: { type: string, description: "Backend-generated S3 object key, e.g. carousel/mobile/{uuid}.webp — never client-supplied." }
+        mobileImageUrl: { type: string, format: uri, description: "CloudFront URL, derived server-side from AWS_S3_PUBLIC_BASE_URL + mobileImageKey." }
         linkType: { type: string, enum: [internal, external, none] }
         linkUrl: { type: [string, "null"] }
         sortOrder: { type: integer }
         isActive: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-      required: [id, title, imageKey, imageUrl, linkType, linkUrl, sortOrder, isActive, createdAt, updatedAt]
+      required: [id, title, desktopImageKey, desktopImageUrl, mobileImageKey, mobileImageUrl, linkType, linkUrl, sortOrder, isActive, createdAt, updatedAt]
       x-confirmation-status: NEW_NODE_FEATURE
 
     PublicCarousel:
       type: object
-      description: Public homepage projection — only the fields the frontend carousel actually renders. isActive=true is implied by inclusion in this list; not a field on the response.
+      description: >
+        Public homepage projection — only the fields the frontend carousel actually renders.
+        Never exposes desktopImageKey/mobileImageKey (S3 object keys are an admin/backend
+        concern only).
       properties:
         id: { type: integer }
         title: { type: string }
-        imageUrl: { type: string, format: uri }
+        desktopImageUrl: { type: string, format: uri }
+        mobileImageUrl: { type: string, format: uri }
         linkType: { type: string, enum: [internal, external, none] }
         linkUrl: { type: [string, "null"] }
-      required: [id, title, imageUrl, linkType, linkUrl]
+        sortOrder: { type: integer }
+        isActive: { type: boolean, description: "Always true in practice — the query already filters is_active=1 — but included for parity with the admin shape." }
+      required: [id, title, desktopImageUrl, mobileImageUrl, linkType, linkUrl, sortOrder, isActive]
       x-confirmation-status: NEW_NODE_FEATURE
 
     CarouselWriteRequest:
       type: object
-      description: Shared by POST /admin/carousels and PUT /admin/carousels/{id}. New Node/Admin feature.
+      description: >
+        Shared by POST /admin/carousels and PUT /admin/carousels/{id}. New Node/Admin
+        feature. Only *ImageKey is accepted — never *ImageUrl — the public URL is always
+        derived server-side from AWS_S3_PUBLIC_BASE_URL + key, so a client can never make
+        the stored URL point somewhere it doesn't control. Both desktop and mobile keys are
+        required on every write, including update: to keep an image unchanged on edit, the
+        caller resends that image's existing key; to replace one, it resends a fresh key
+        obtained from POST /admin/carousels/upload-url.
       properties:
         title: { type: string }
-        imageUrl: { type: string, format: uri }
-        imageKey: { type: string }
+        desktopImageKey: { type: string }
+        mobileImageKey: { type: string }
         linkType: { type: string, enum: [internal, external, none] }
         linkUrl: { type: [string, "null"], description: "Required and must start with '/' when linkType=internal; required and must start with http(s):// when linkType=external; ignored/null when linkType=none." }
         sortOrder: { type: integer }
         isActive: { type: boolean }
-      required: [title, imageUrl, imageKey, linkType, sortOrder, isActive]
+      required: [title, desktopImageKey, mobileImageKey, linkType, sortOrder, isActive]
       x-confirmation-status: NEW_NODE_FEATURE
 
     CarouselUploadUrlRequest:
@@ -338,12 +356,15 @@ components:
         minimal "what to upload" contract but is required so the server can bind
         ContentLength into the presigned request — the only way to actually enforce the 5MB
         cap given a plain presigned PUT (as opposed to a presigned POST with policy
-        conditions).
+        conditions). variant picks the S3 key prefix (carousel/desktop/... vs
+        carousel/mobile/...), both still under carousel/* so the existing IAM policy
+        (arn:aws:s3:::<bucket>/carousel/*) covers both without change.
       properties:
         fileName: { type: string, description: "Informational only — never used to derive the S3 key or path." }
         contentType: { type: string, enum: [image/jpeg, image/png, image/webp] }
         fileSize: { type: integer, maximum: 5242880, description: "Bytes. Max 5MB (5 * 1024 * 1024)." }
-      required: [fileName, contentType, fileSize]
+        variant: { type: string, enum: [desktop, mobile] }
+      required: [fileName, contentType, fileSize, variant]
       x-confirmation-status: NEW_NODE_FEATURE
 
     CarouselUploadUrlResponse:
@@ -1082,7 +1103,11 @@ paths:
     post:
       operationId: adminCreateCarousel
       summary: 管理端：新增輪播圖
-      description: imageUrl/imageKey must come from a prior POST /admin/carousels/upload-url + direct S3 PUT — this endpoint does not accept file uploads.
+      description: >
+        Both desktopImageKey and mobileImageKey are required and must come from a prior
+        POST /admin/carousels/upload-url + direct S3 PUT (once per image) — this endpoint
+        does not accept file uploads. desktopImageUrl/mobileImageUrl are never accepted from
+        the client; they are derived server-side from AWS_S3_PUBLIC_BASE_URL + the given keys.
       tags: [Admin]
       security: [{ bearerAuth: [] }]
       x-confirmation-status: NEW_NODE_FEATURE
@@ -1112,11 +1137,13 @@ paths:
       operationId: adminCreateCarouselUploadUrl
       summary: 管理端：取得輪播圖片的 S3 Presigned Upload URL
       description: >
-        Backend generates the S3 object key (carousel/{uuid}.ext) — the client-supplied
-        fileName is informational only and is never used as or to derive the key/path.
-        contentType is restricted to image/jpeg, image/png, image/webp. fileSize is validated
-        against a 5MB cap and bound into the presigned request's ContentLength so S3 itself
-        rejects a PUT that doesn't match. The returned uploadUrl expires in 5 minutes.
+        Backend generates the S3 object key from `variant` (carousel/desktop/{uuid}.ext or
+        carousel/mobile/{uuid}.ext) — the client-supplied fileName is informational only and
+        is never used as or to derive the key/path. contentType is restricted to
+        image/jpeg, image/png, image/webp. fileSize is validated against a 5MB cap and bound
+        into the presigned request's ContentLength so S3 itself rejects a PUT that doesn't
+        match. The presigned uploadUrl is signed directly against S3 (not routed through
+        CloudFront, which only serves reads) and expires in 5 minutes.
       tags: [Admin]
       security: [{ bearerAuth: [] }]
       x-confirmation-status: NEW_NODE_FEATURE
@@ -1152,10 +1179,11 @@ paths:
       operationId: adminUpdateCarousel
       summary: 管理端：更新輪播圖
       description: >
-        If imageKey changes from the existing row's value, the OLD S3 object is deleted only
-        after this DB update succeeds (never before) — a failure to delete the old image is
-        logged but does not fail this request, since the DB write (the source of truth) has
-        already committed.
+        desktopImageKey/mobileImageKey are diffed independently against the existing row: for
+        whichever image actually changed, the OLD S3 object is deleted only after this DB
+        update succeeds (never before) — a failure to delete an old image is logged but does
+        not fail this request, since the DB write (the source of truth) has already
+        committed. To keep an image unchanged, resend its existing key.
       tags: [Admin]
       security: [{ bearerAuth: [] }]
       x-confirmation-status: NEW_NODE_FEATURE
@@ -1189,11 +1217,13 @@ paths:
       summary: 管理端：刪除輪播圖（單筆，非批次；與 FAQ/contact-class 的批次 delete 慣例不同）
       description: >
         Deliberately single-id (path param), unlike FAQ/contact-class's batch `DELETE /` with
-        a body {ids}. Deletion is coupled to a single S3 object cleanup (read record -> delete
-        S3 object -> delete DB row, in that order): a genuine S3 delete failure (not simply
-        "object already missing", which S3 treats as a success) returns 500 and leaves the DB
-        row untouched, so there is never a DB row pointing at a deleted image nor a deleted
-        row whose image might still exist.
+        a body {ids}. Deletion is coupled to BOTH S3 objects (read record -> delete desktop
+        object -> delete mobile object -> delete DB row, in that order): a genuine S3 delete
+        failure on either image (not simply "object already missing", which S3 treats as a
+        success) returns 500 and leaves the DB row untouched, so there is never a DB row
+        pointing at a deleted image nor a deleted row whose image might still exist. If
+        desktop deletes but mobile then fails, a retry is safe — re-deleting the already-gone
+        desktop key is a no-op.
       tags: [Admin]
       security: [{ bearerAuth: [] }]
       x-confirmation-status: NEW_NODE_FEATURE

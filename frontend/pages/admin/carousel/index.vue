@@ -11,9 +11,9 @@
         <ul class="pt-5">
             <li class="rounded-t-md bg-black px-1 py-2 text-white">
                 <ul class="flex items-center px-3 text-center">
-                    <li class="w-[15%] text-[11px] sm:text-[16px]">圖片</li>
+                    <li class="w-[20%] text-[11px] sm:text-[16px]">圖片</li>
                     <li class="w-[25%] text-[11px] sm:text-[16px]">標題</li>
-                    <li class="w-[20%] text-[11px] sm:text-[16px]">連結</li>
+                    <li class="w-[15%] text-[11px] sm:text-[16px]">連結</li>
                     <li class="w-[10%] text-[11px] sm:text-[16px]">排序</li>
                     <li class="w-[10%] text-[11px] sm:text-[16px]">狀態</li>
                     <li class="w-[20%] text-[11px] sm:text-[16px]">操作</li>
@@ -25,11 +25,26 @@
                 :key="row.id"
             >
                 <ul class="flex items-center p-3 text-center">
-                    <li class="w-[15%] break-all pe-1">
-                        <img :src="row.imageUrl" :alt="row.title" class="mx-auto h-12 w-20 rounded object-cover" />
+                    <li class="flex w-[20%] items-center justify-center gap-2 pe-1">
+                        <div class="text-center">
+                            <img
+                                :src="row.desktopImageUrl"
+                                :alt="`${row.title}（PC）`"
+                                class="mx-auto h-12 w-16 rounded border object-cover"
+                            />
+                            <span class="text-[9px] text-[#999]">PC</span>
+                        </div>
+                        <div class="text-center">
+                            <img
+                                :src="row.mobileImageUrl"
+                                :alt="`${row.title}（Mobile）`"
+                                class="mx-auto h-12 w-9 rounded border object-cover"
+                            />
+                            <span class="text-[9px] text-[#999]">Mobile</span>
+                        </div>
                     </li>
                     <li class="w-[25%] break-all pe-1 text-[11px] sm:text-[16px]">{{ row.title }}</li>
-                    <li class="w-[20%] break-all pe-1 text-[10px] sm:text-[14px]">
+                    <li class="w-[15%] break-all pe-1 text-[10px] sm:text-[14px]">
                         <span v-if="row.linkType === 'none'" class="text-[#999]">無連結</span>
                         <span v-else>{{ linkTypeLabel(row.linkType) }}：{{ row.linkUrl }}</span>
                     </li>
@@ -81,7 +96,7 @@
             v-if="showModal"
             class="bg-black-opacity fixed inset-0 z-40 flex items-center justify-center overflow-y-auto p-4"
         >
-            <div class="w-full max-w-[600px] rounded-md bg-white p-6">
+            <div class="w-full max-w-[640px] rounded-md bg-white p-6">
                 <h4 class="mb-4 text-[20px] font-bold">{{ editingId ? '編輯輪播圖' : '新增輪播圖' }}</h4>
 
                 <div class="mb-4">
@@ -89,17 +104,35 @@
                     <input v-model="form.title" type="text" class="w-full rounded border p-2" placeholder="請輸入標題" />
                 </div>
 
-                <div class="mb-4">
-                    <label class="mb-1 block text-[14px] font-bold">圖片（jpg/png/webp，最大 5MB）</label>
-                    <input type="file" accept="image/jpeg,image/png,image/webp" @change="onFileSelected" />
+                <!-- PC 圖片 -->
+                <div class="mb-4 rounded border p-3">
+                    <label class="mb-1 block text-[14px] font-bold">PC 圖片</label>
+                    <p class="mb-2 text-[12px] text-[#999]">建議尺寸：1920 × 1080 px，比例：16:9</p>
+                    <input type="file" accept="image/jpeg,image/png,image/webp" @change="onFileSelected('desktop', $event)" />
                     <img
-                        v-if="previewUrl"
-                        :src="previewUrl"
-                        class="mt-2 h-24 w-40 rounded border object-cover"
-                        alt="預覽圖"
+                        v-if="previewUrl('desktop')"
+                        :src="previewUrl('desktop') ?? undefined"
+                        class="mt-2 aspect-[16/9] h-24 rounded border object-cover"
+                        alt="PC 預覽圖"
                     />
-                    <div v-if="uploadPercent !== null" class="mt-2 h-2 w-full rounded bg-gray-200">
-                        <div class="h-2 rounded bg-blue-500" :style="{ width: uploadPercent + '%' }"></div>
+                    <div v-if="images.desktop.uploadPercent !== null" class="mt-2 h-2 w-full rounded bg-gray-200">
+                        <div class="h-2 rounded bg-blue-500" :style="{ width: images.desktop.uploadPercent + '%' }"></div>
+                    </div>
+                </div>
+
+                <!-- Mobile 圖片 -->
+                <div class="mb-4 rounded border p-3">
+                    <label class="mb-1 block text-[14px] font-bold">Mobile 圖片</label>
+                    <p class="mb-2 text-[12px] text-[#999]">建議尺寸：700 × 800 px，比例：7:8</p>
+                    <input type="file" accept="image/jpeg,image/png,image/webp" @change="onFileSelected('mobile', $event)" />
+                    <img
+                        v-if="previewUrl('mobile')"
+                        :src="previewUrl('mobile') ?? undefined"
+                        class="mt-2 aspect-[7/8] h-24 rounded border object-cover"
+                        alt="Mobile 預覽圖"
+                    />
+                    <div v-if="images.mobile.uploadPercent !== null" class="mt-2 h-2 w-full rounded bg-gray-200">
+                        <div class="h-2 rounded bg-blue-500" :style="{ width: images.mobile.uploadPercent + '%' }"></div>
                     </div>
                 </div>
 
@@ -170,7 +203,12 @@
 <script setup lang="ts">
 import { CarouselAdminApi } from '@/api/carousel';
 import { INTERNAL_LINK_OPTIONS } from '@/api/interface/carousel';
-import type { CarouselData, CarouselLinkType, CarouselWritePayload } from '@/api/interface/carousel';
+import type {
+    CarouselData,
+    CarouselImageVariant,
+    CarouselLinkType,
+    CarouselWritePayload
+} from '@/api/interface/carousel';
 import { usePublicStore } from '@/store/usePublicStore';
 import LoadingComponet from '~/components/LoadingComponet.vue';
 
@@ -184,40 +222,54 @@ useHead({
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const VARIANT_LABELS: Record<CarouselImageVariant, string> = { desktop: 'PC', mobile: 'Mobile' };
 
 const carouselList = ref<CarouselData[] | null>(null);
 const showModal = ref(false);
 const editingId = ref<number | null>(null);
-const selectedFile = ref<File | null>(null);
-const uploadPercent = ref<number | null>(null);
 const isSubmitting = ref(false);
 const formError = ref('');
 const internalPathSelect = ref<string>(INTERNAL_LINK_OPTIONS[0]?.path ?? '/');
 
+interface VariantImageState {
+    key: string;
+    url: string;
+    file: File | null;
+    uploadPercent: number | null;
+}
+
+function emptyVariantState(): VariantImageState {
+    return { key: '', url: '', file: null, uploadPercent: null };
+}
+
+// 兩張圖片（desktop/mobile）各自獨立的上傳狀態，避免把同一套邏輯重複寫成
+// desktopXxx/mobileXxx 兩份 top-level 變數。
+const images = reactive<Record<CarouselImageVariant, VariantImageState>>({
+    desktop: emptyVariantState(),
+    mobile: emptyVariantState()
+});
+
 const form = reactive<{
     title: string;
-    imageKey: string;
-    imageUrl: string;
     linkType: CarouselLinkType;
     linkUrl: string | null;
     sortOrder: number;
     isActive: boolean;
 }>({
     title: '',
-    imageKey: '',
-    imageUrl: '',
     linkType: 'none',
     linkUrl: null,
     sortOrder: 0,
     isActive: true
 });
 
-const previewUrl = computed(() => {
-    if (selectedFile.value) {
-        return URL.createObjectURL(selectedFile.value);
+function previewUrl(variant: CarouselImageVariant): string | null {
+    const state = images[variant];
+    if (state.file) {
+        return URL.createObjectURL(state.file);
     }
-    return form.imageUrl || null;
-});
+    return state.url || null;
+}
 
 function linkTypeLabel(type: CarouselLinkType) {
     return type === 'internal' ? '站內' : type === 'external' ? '外部' : '';
@@ -246,8 +298,8 @@ const removeCarousel = async (id: number) => {
 const toggleActive = async (row: CarouselData) => {
     const payload: CarouselWritePayload = {
         title: row.title,
-        imageUrl: row.imageUrl,
-        imageKey: row.imageKey,
+        desktopImageKey: row.desktopImageKey,
+        mobileImageKey: row.mobileImageKey,
         linkType: row.linkType,
         linkUrl: row.linkUrl,
         sortOrder: row.sortOrder,
@@ -261,14 +313,12 @@ const toggleActive = async (row: CarouselData) => {
 
 function resetForm() {
     form.title = '';
-    form.imageKey = '';
-    form.imageUrl = '';
     form.linkType = 'none';
     form.linkUrl = null;
     form.sortOrder = (carouselList.value?.length ?? 0) + 1;
     form.isActive = true;
-    selectedFile.value = null;
-    uploadPercent.value = null;
+    images.desktop = emptyVariantState();
+    images.mobile = emptyVariantState();
     formError.value = '';
     internalPathSelect.value = INTERNAL_LINK_OPTIONS[0]?.path ?? '/';
 }
@@ -282,14 +332,12 @@ function openCreateModal() {
 function openEditModal(row: CarouselData) {
     editingId.value = row.id;
     form.title = row.title;
-    form.imageKey = row.imageKey;
-    form.imageUrl = row.imageUrl;
     form.linkType = row.linkType;
     form.linkUrl = row.linkUrl;
     form.sortOrder = row.sortOrder;
     form.isActive = row.isActive;
-    selectedFile.value = null;
-    uploadPercent.value = null;
+    images.desktop = { key: row.desktopImageKey, url: row.desktopImageUrl, file: null, uploadPercent: null };
+    images.mobile = { key: row.mobileImageKey, url: row.mobileImageUrl, file: null, uploadPercent: null };
     formError.value = '';
     if (row.linkType === 'internal') {
         const preset = INTERNAL_LINK_OPTIONS.find((opt) => opt.path === row.linkUrl);
@@ -304,26 +352,26 @@ function closeModal() {
     showModal.value = false;
 }
 
-function onFileSelected(event: Event) {
+function onFileSelected(variant: CarouselImageVariant, event: Event) {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0] ?? null;
     formError.value = '';
 
     if (!file) {
-        selectedFile.value = null;
+        images[variant].file = null;
         return;
     }
     if (!ALLOWED_TYPES.includes(file.type)) {
-        formError.value = '只允許 jpg、png、webp 格式的圖片';
+        formError.value = `${VARIANT_LABELS[variant]} 圖片只允許 jpg、png、webp 格式`;
         input.value = '';
         return;
     }
     if (file.size > MAX_UPLOAD_BYTES) {
-        formError.value = '圖片大小不可超過 5MB';
+        formError.value = `${VARIANT_LABELS[variant]} 圖片大小不可超過 5MB`;
         input.value = '';
         return;
     }
-    selectedFile.value = file;
+    images[variant].file = file;
 }
 
 // linkType 為 internal 時，把下拉選單（含「自訂路徑」）的選擇同步回 form.linkUrl
@@ -349,8 +397,10 @@ function validateForm(): string {
     if (!form.title.trim()) {
         return 'title 為必填欄位';
     }
-    if (!editingId.value && !selectedFile.value) {
-        return '請選擇要上傳的圖片';
+    // 新增時兩張圖片都必填；編輯時已有既有 key，不用重新上傳。
+    if (!editingId.value) {
+        if (!images.desktop.file) return '請上傳 PC 圖片';
+        if (!images.mobile.file) return '請上傳 Mobile 圖片';
     }
     if (form.linkType === 'external' && !/^https?:\/\//i.test(form.linkUrl ?? '')) {
         return '外部連結必須是 http(s):// 開頭的網址';
@@ -364,6 +414,37 @@ function validateForm(): string {
     return '';
 }
 
+/**
+ * 沒有選新檔案時直接沿用既有 key/url（編輯時不換圖的情況）；有選檔案才真的呼叫
+ * upload-url + PUT 到 S3。回傳 false 代表這張圖上傳失敗，呼叫端要中止整個送出流程。
+ */
+async function uploadVariantIfNeeded(variant: CarouselImageVariant): Promise<boolean> {
+    const state = images[variant];
+    if (!state.file) {
+        return true;
+    }
+
+    const uploadUrlResult = await CarouselAdminApi.requestUploadUrl(state.file, variant);
+    if (!uploadUrlResult) {
+        return false;
+    }
+
+    state.uploadPercent = 0;
+    const uploaded = await CarouselAdminApi.uploadImageToS3(
+        uploadUrlResult.uploadUrl,
+        state.file,
+        (percent) => (state.uploadPercent = percent)
+    );
+    if (!uploaded) {
+        formError.value = `${VARIANT_LABELS[variant]} 圖片上傳失敗，請稍後再試`;
+        return false;
+    }
+
+    state.key = uploadUrlResult.imageKey;
+    state.url = uploadUrlResult.imageUrl;
+    return true;
+}
+
 async function submitForm() {
     const error = validateForm();
     if (error) {
@@ -375,32 +456,19 @@ async function submitForm() {
     formError.value = '';
 
     try {
-        let imageKey = form.imageKey;
-        let imageUrl = form.imageUrl;
-
-        if (selectedFile.value) {
-            const uploadUrlResult = await CarouselAdminApi.requestUploadUrl(selectedFile.value);
-            if (!uploadUrlResult) {
-                return;
-            }
-            uploadPercent.value = 0;
-            const uploaded = await CarouselAdminApi.uploadImageToS3(
-                uploadUrlResult.uploadUrl,
-                selectedFile.value,
-                (percent) => (uploadPercent.value = percent)
-            );
-            if (!uploaded) {
-                formError.value = '圖片上傳失敗，請稍後再試';
-                return;
-            }
-            imageKey = uploadUrlResult.imageKey;
-            imageUrl = uploadUrlResult.imageUrl;
+        // 兩張圖各自獨立上傳（沒換的那張是 no-op），兩者互不依賴，平行執行。
+        const [desktopOk, mobileOk] = await Promise.all([
+            uploadVariantIfNeeded('desktop'),
+            uploadVariantIfNeeded('mobile')
+        ]);
+        if (!desktopOk || !mobileOk) {
+            return;
         }
 
         const payload: CarouselWritePayload = {
             title: form.title.trim(),
-            imageUrl,
-            imageKey,
+            desktopImageKey: images.desktop.key,
+            mobileImageKey: images.mobile.key,
             linkType: form.linkType,
             linkUrl: form.linkType === 'none' ? null : form.linkUrl,
             sortOrder: form.sortOrder,
@@ -418,7 +486,8 @@ async function submitForm() {
         }
     } finally {
         isSubmitting.value = false;
-        uploadPercent.value = null;
+        images.desktop.uploadPercent = null;
+        images.mobile.uploadPercent = null;
     }
 }
 

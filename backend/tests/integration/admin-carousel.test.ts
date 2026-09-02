@@ -3,12 +3,16 @@ import request from 'supertest';
 import { buildTestApp, createMockPool, createMockS3Client } from '../helpers/build-test-app';
 import { adminUserToken, normalUserToken } from '../helpers/auth-tokens';
 
+const CDN = 'https://cdn.test.example.com';
+
 function carouselRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 1,
     title: '講座宣傳圖',
-    imageKey: 'carousel/existing.webp',
-    imageUrl: 'https://bucket.s3.ap-northeast-1.amazonaws.com/carousel/existing.webp',
+    desktopImageKey: 'carousel/desktop/existing.webp',
+    desktopImageUrl: `${CDN}/carousel/desktop/existing.webp`,
+    mobileImageKey: 'carousel/mobile/existing.webp',
+    mobileImageUrl: `${CDN}/carousel/mobile/existing.webp`,
     linkType: 'internal',
     linkUrl: '/about',
     sortOrder: 1,
@@ -22,8 +26,8 @@ function carouselRow(overrides: Record<string, unknown> = {}) {
 function validWritePayload(overrides: Record<string, unknown> = {}) {
   return {
     title: '新輪播圖',
-    imageUrl: 'https://bucket.s3.ap-northeast-1.amazonaws.com/carousel/new.webp',
-    imageKey: 'carousel/new.webp',
+    desktopImageKey: 'carousel/desktop/new.webp',
+    mobileImageKey: 'carousel/mobile/new.webp',
     linkType: 'internal',
     linkUrl: '/about',
     sortOrder: 1,
@@ -47,7 +51,7 @@ describe('GET /api/v2/admin/carousels', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 200 { data: [...] } including inactive rows, for an admin token', async () => {
+  it('returns 200 { data: [...] } including *ImageKey fields and inactive rows, for an admin token', async () => {
     const rows = [carouselRow({ isActive: 1 }), carouselRow({ id: 2, isActive: 0 })];
     const pool = createMockPool({ query: vi.fn().mockResolvedValue([rows, []]) });
     const { app } = buildTestApp({ pool });
@@ -63,6 +67,8 @@ describe('GET /api/v2/admin/carousels', () => {
         { ...rows[1], isActive: false },
       ],
     });
+    expect(res.body.data[0]).toHaveProperty('desktopImageKey');
+    expect(res.body.data[0]).toHaveProperty('mobileImageKey');
   });
 
   it('orders by sort_order then id, with no is_active filter (unlike the public endpoint)', async () => {
@@ -109,9 +115,9 @@ describe('POST /api/v2/admin/carousels', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 201 { message, data } on success', async () => {
-    const row = carouselRow({ id: 5, isActive: 1 });
-    const { pool } = mockCreatePool(row);
+  it('returns 201 { message, data } on success, with desktop/mobile URLs derived from AWS_S3_PUBLIC_BASE_URL + key', async () => {
+    const row = carouselRow({ id: 5 });
+    const { pool, queryFn } = mockCreatePool(row);
     const { app } = buildTestApp({ pool });
 
     const res = await request(app)
@@ -121,9 +127,17 @@ describe('POST /api/v2/admin/carousels', () => {
 
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ message: '新增成功', data: { ...row, isActive: true } });
+
+    const insertCall = (queryFn.mock.calls as [string, unknown[]?][]).find(([sql]) =>
+      sql.startsWith('INSERT INTO carousel'),
+    );
+    // desktopImageUrl/mobileImageUrl written to DB are server-derived, never client-supplied
+    // (the request body never contains an *ImageUrl field at all).
+    expect(insertCall?.[1]).toContain(`${CDN}/carousel/desktop/new.webp`);
+    expect(insertCall?.[1]).toContain(`${CDN}/carousel/mobile/new.webp`);
   });
 
-  it('rejects a missing title with the FormRequest-compatible 400 shape', async () => {
+  it('rejects a missing title', async () => {
     const { app } = buildTestApp();
     const { title: _title, ...rest } = validWritePayload();
 
@@ -134,6 +148,64 @@ describe('POST /api/v2/admin/carousels', () => {
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ status: 'error', message: 'title 為必填欄位' });
+  });
+
+  it('rejects a missing desktopImageKey', async () => {
+    const { app } = buildTestApp();
+    const { desktopImageKey: _desktopImageKey, ...rest } = validWritePayload();
+
+    const res = await request(app)
+      .post('/api/v2/admin/carousels')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send(rest);
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ status: 'error', message: 'desktopImageKey 為必填欄位' });
+  });
+
+  it('rejects a missing mobileImageKey', async () => {
+    const { app } = buildTestApp();
+    const { mobileImageKey: _mobileImageKey, ...rest } = validWritePayload();
+
+    const res = await request(app)
+      .post('/api/v2/admin/carousels')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send(rest);
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ status: 'error', message: 'mobileImageKey 為必填欄位' });
+  });
+
+  it('ignores a client-supplied desktopImageUrl/mobileImageUrl — the stored URL is always server-derived', async () => {
+    const row = carouselRow({ id: 5 });
+    const { pool, queryFn } = mockCreatePool(row);
+    const { app } = buildTestApp({ pool });
+
+    await request(app)
+      .post('/api/v2/admin/carousels')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({
+        ...validWritePayload(),
+        desktopImageUrl: 'https://evil.example.com/phish.png',
+        mobileImageUrl: 'https://evil.example.com/phish.png',
+      });
+
+    const insertCall = (queryFn.mock.calls as [string, unknown[]?][]).find(([sql]) =>
+      sql.startsWith('INSERT INTO carousel'),
+    );
+    expect(insertCall?.[1]).not.toContain('https://evil.example.com/phish.png');
+    expect(insertCall?.[1]).toContain(`${CDN}/carousel/desktop/new.webp`);
+  });
+
+  it('returns 503 when AWS_S3_PUBLIC_BASE_URL is not configured (URL cannot be derived)', async () => {
+    const { app } = buildTestApp({ env: { AWS_S3_PUBLIC_BASE_URL: '' } });
+
+    const res = await request(app)
+      .post('/api/v2/admin/carousels')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send(validWritePayload());
+
+    expect(res.status).toBe(503);
   });
 
   it('rejects an invalid linkType', async () => {
@@ -209,7 +281,10 @@ describe('POST /api/v2/admin/carousels', () => {
   });
 });
 
-function mockUpdatePool(options: { existing: Record<string, unknown> | null; finalRow: Record<string, unknown> }) {
+function mockUpdatePool(options: {
+  existing: Record<string, unknown> | null;
+  finalRow: Record<string, unknown>;
+}) {
   let selectCallCount = 0;
   const queryFn = vi.fn().mockImplementation((sql: string) => {
     if (sql.startsWith('UPDATE carousel')) {
@@ -243,9 +318,9 @@ describe('PUT /api/v2/admin/carousels/:id', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 200 { message, data } when the image key is unchanged (no S3 call)', async () => {
-    const existing = carouselRow({ id: 1, imageKey: 'carousel/same.webp' });
-    const updated = carouselRow({ id: 1, title: '更新標題', imageKey: 'carousel/same.webp' });
+  it('metadata-only edit (same desktop/mobile keys resent): no S3 calls at all', async () => {
+    const existing = carouselRow({ id: 1 });
+    const updated = carouselRow({ id: 1, title: '更新標題' });
     const { pool } = mockUpdatePool({ existing, finalRow: updated });
     const s3Client = createMockS3Client();
     const { app } = buildTestApp({ pool, s3Client });
@@ -253,16 +328,26 @@ describe('PUT /api/v2/admin/carousels/:id', () => {
     const res = await request(app)
       .put('/api/v2/admin/carousels/1')
       .set('Authorization', `Bearer ${adminUserToken()}`)
-      .send(validWritePayload({ title: '更新標題', imageKey: 'carousel/same.webp' }));
+      .send(
+        validWritePayload({
+          title: '更新標題',
+          desktopImageKey: existing.desktopImageKey,
+          mobileImageKey: existing.mobileImageKey,
+        }),
+      );
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ message: '更新成功', data: { ...updated, isActive: true } });
     expect(s3Client.send).not.toHaveBeenCalled();
   });
 
-  it('deletes the OLD image from S3 only after the DB update succeeds, when the image key changes', async () => {
-    const existing = carouselRow({ id: 1, imageKey: 'carousel/old.webp' });
-    const updated = carouselRow({ id: 1, imageKey: 'carousel/new.webp' });
+  it('desktop-only edit: deletes only the OLD desktop image, mobile untouched', async () => {
+    const existing = carouselRow({ id: 1 });
+    const updated = carouselRow({
+      id: 1,
+      desktopImageKey: 'carousel/desktop/new.webp',
+      desktopImageUrl: `${CDN}/carousel/desktop/new.webp`,
+    });
     const { pool } = mockUpdatePool({ existing, finalRow: updated });
     const send = vi.fn().mockResolvedValue({});
     const s3Client = createMockS3Client({ send });
@@ -271,17 +356,82 @@ describe('PUT /api/v2/admin/carousels/:id', () => {
     const res = await request(app)
       .put('/api/v2/admin/carousels/1')
       .set('Authorization', `Bearer ${adminUserToken()}`)
-      .send(validWritePayload({ imageKey: 'carousel/new.webp', imageUrl: updated.imageUrl }));
+      .send(
+        validWritePayload({
+          desktopImageKey: 'carousel/desktop/new.webp',
+          mobileImageKey: existing.mobileImageKey,
+        }),
+      );
 
     expect(res.status).toBe(200);
     expect(send).toHaveBeenCalledTimes(1);
-    const deleteInput = send.mock.calls[0]![0].input;
-    expect(deleteInput).toMatchObject({ Key: 'carousel/old.webp' });
+    expect(send.mock.calls[0]![0].input).toMatchObject({ Key: existing.desktopImageKey });
   });
 
-  it('still returns 200 with the update even if deleting the old S3 image fails (logged, not fatal)', async () => {
-    const existing = carouselRow({ id: 1, imageKey: 'carousel/old.webp' });
-    const updated = carouselRow({ id: 1, imageKey: 'carousel/new.webp' });
+  it('mobile-only edit: deletes only the OLD mobile image, desktop untouched', async () => {
+    const existing = carouselRow({ id: 1 });
+    const updated = carouselRow({
+      id: 1,
+      mobileImageKey: 'carousel/mobile/new.webp',
+      mobileImageUrl: `${CDN}/carousel/mobile/new.webp`,
+    });
+    const { pool } = mockUpdatePool({ existing, finalRow: updated });
+    const send = vi.fn().mockResolvedValue({});
+    const s3Client = createMockS3Client({ send });
+    const { app } = buildTestApp({ pool, s3Client });
+
+    const res = await request(app)
+      .put('/api/v2/admin/carousels/1')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send(
+        validWritePayload({
+          desktopImageKey: existing.desktopImageKey,
+          mobileImageKey: 'carousel/mobile/new.webp',
+        }),
+      );
+
+    expect(res.status).toBe(200);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0].input).toMatchObject({ Key: existing.mobileImageKey });
+  });
+
+  it('both-images edit: deletes BOTH old images after the DB update succeeds', async () => {
+    const existing = carouselRow({ id: 1 });
+    const updated = carouselRow({
+      id: 1,
+      desktopImageKey: 'carousel/desktop/new.webp',
+      desktopImageUrl: `${CDN}/carousel/desktop/new.webp`,
+      mobileImageKey: 'carousel/mobile/new.webp',
+      mobileImageUrl: `${CDN}/carousel/mobile/new.webp`,
+    });
+    const { pool } = mockUpdatePool({ existing, finalRow: updated });
+    const send = vi.fn().mockResolvedValue({});
+    const s3Client = createMockS3Client({ send });
+    const { app } = buildTestApp({ pool, s3Client });
+
+    const res = await request(app)
+      .put('/api/v2/admin/carousels/1')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send(
+        validWritePayload({
+          desktopImageKey: 'carousel/desktop/new.webp',
+          mobileImageKey: 'carousel/mobile/new.webp',
+        }),
+      );
+
+    expect(res.status).toBe(200);
+    expect(send).toHaveBeenCalledTimes(2);
+    const deletedKeys = send.mock.calls.map((call) => (call[0] as { input: { Key: string } }).input.Key);
+    expect(deletedKeys).toEqual([existing.desktopImageKey, existing.mobileImageKey]);
+  });
+
+  it('still returns 200 with the update even if deleting an old S3 image fails (logged, not fatal)', async () => {
+    const existing = carouselRow({ id: 1 });
+    const updated = carouselRow({
+      id: 1,
+      desktopImageKey: 'carousel/desktop/new.webp',
+      desktopImageUrl: `${CDN}/carousel/desktop/new.webp`,
+    });
     const { pool } = mockUpdatePool({ existing, finalRow: updated });
     const s3Client = createMockS3Client({ send: vi.fn().mockRejectedValue(new Error('S3 down')) });
     const { app } = buildTestApp({ pool, s3Client });
@@ -289,7 +439,12 @@ describe('PUT /api/v2/admin/carousels/:id', () => {
     const res = await request(app)
       .put('/api/v2/admin/carousels/1')
       .set('Authorization', `Bearer ${adminUserToken()}`)
-      .send(validWritePayload({ imageKey: 'carousel/new.webp', imageUrl: updated.imageUrl }));
+      .send(
+        validWritePayload({
+          desktopImageKey: 'carousel/desktop/new.webp',
+          mobileImageKey: existing.mobileImageKey,
+        }),
+      );
 
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('更新成功');
@@ -338,11 +493,11 @@ describe('DELETE /api/v2/admin/carousels/:id', () => {
     expect(res.status).toBe(403);
   });
 
-  it('reads the record, deletes the S3 object, then deletes the DB row, in that order', async () => {
-    const existing = carouselRow({ id: 1, imageKey: 'carousel/to-delete.webp' });
+  it('reads the record, deletes BOTH S3 objects (desktop then mobile), then deletes the DB row', async () => {
+    const existing = carouselRow({ id: 1 });
     const calls: string[] = [];
-    const send = vi.fn().mockImplementation(() => {
-      calls.push('s3-delete');
+    const send = vi.fn().mockImplementation((command: { input: { Key: string } }) => {
+      calls.push(`s3-delete:${command.input.Key}`);
       return Promise.resolve({});
     });
     const queryFn = vi.fn().mockImplementation((sql: string) => {
@@ -365,9 +520,12 @@ describe('DELETE /api/v2/admin/carousels/:id', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ message: '刪除成功' });
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0]![0].input).toMatchObject({ Key: 'carousel/to-delete.webp' });
-    expect(calls).toEqual(['s3-delete', 'db-delete']);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(calls).toEqual([
+      `s3-delete:${existing.desktopImageKey}`,
+      `s3-delete:${existing.mobileImageKey}`,
+      'db-delete',
+    ]);
   });
 
   it('returns 404 for a nonexistent id and never calls S3', async () => {
@@ -386,8 +544,8 @@ describe('DELETE /api/v2/admin/carousels/:id', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('returns 500 and does NOT delete the DB row when the S3 delete genuinely fails', async () => {
-    const existing = carouselRow({ id: 1, imageKey: 'carousel/to-delete.webp' });
+  it('returns 500 and does NOT delete the DB row when the desktop S3 delete fails', async () => {
+    const existing = carouselRow({ id: 1 });
     const queryFn = vi.fn().mockImplementation((sql: string) => {
       if (sql.includes('FROM carousel WHERE id = ?')) {
         return Promise.resolve([[existing], []]);
@@ -403,6 +561,33 @@ describe('DELETE /api/v2/admin/carousels/:id', () => {
       .set('Authorization', `Bearer ${adminUserToken()}`);
 
     expect(res.status).toBe(500);
+    expect(queryFn.mock.calls.some(([sql]) => (sql as string).startsWith('DELETE FROM carousel'))).toBe(
+      false,
+    );
+  });
+
+  it('returns 500 and does NOT delete the DB row when the mobile S3 delete fails (desktop already deleted)', async () => {
+    const existing = carouselRow({ id: 1 });
+    const queryFn = vi.fn().mockImplementation((sql: string) => {
+      if (sql.includes('FROM carousel WHERE id = ?')) {
+        return Promise.resolve([[existing], []]);
+      }
+      throw new Error(`unexpected query in test: ${sql}`);
+    });
+    const pool = createMockPool({ query: queryFn });
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({}) // desktop delete succeeds
+      .mockRejectedValueOnce(new Error('S3 down')); // mobile delete fails
+    const s3Client = createMockS3Client({ send });
+    const { app } = buildTestApp({ pool, s3Client });
+
+    const res = await request(app)
+      .delete('/api/v2/admin/carousels/1')
+      .set('Authorization', `Bearer ${adminUserToken()}`);
+
+    expect(res.status).toBe(500);
+    expect(send).toHaveBeenCalledTimes(2);
     expect(queryFn.mock.calls.some(([sql]) => (sql as string).startsWith('DELETE FROM carousel'))).toBe(
       false,
     );

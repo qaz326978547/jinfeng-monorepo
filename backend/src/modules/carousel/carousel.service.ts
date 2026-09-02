@@ -1,9 +1,9 @@
-import type { CarouselRepository, PublicCarouselRow } from './carousel.repository';
+import type { CarouselRepository, PublicCarousel } from './carousel.repository';
 
 export class CarouselService {
   constructor(private readonly repository: CarouselRepository) {}
 
-  async listActive(): Promise<PublicCarouselRow[]> {
+  async listActive(): Promise<PublicCarousel[]> {
     return this.repository.findAllActiveForPublic();
   }
 }

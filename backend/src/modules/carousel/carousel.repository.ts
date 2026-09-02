@@ -10,7 +10,8 @@ export type CarouselLinkType = 'internal' | 'external' | 'none';
  */
 const FULL_COLUMNS = `
   id, title,
-  image_key AS imageKey, image_url AS imageUrl,
+  desktop_image_key AS desktopImageKey, desktop_image_url AS desktopImageUrl,
+  mobile_image_key AS mobileImageKey, mobile_image_url AS mobileImageUrl,
   link_type AS linkType, link_url AS linkUrl,
   sort_order AS sortOrder, is_active AS isActive,
   created_at AS createdAt, updated_at AS updatedAt
@@ -19,8 +20,10 @@ const FULL_COLUMNS = `
 interface CarouselRow extends RowDataPacket {
   id: number;
   title: string;
-  imageKey: string;
-  imageUrl: string;
+  desktopImageKey: string;
+  desktopImageUrl: string;
+  mobileImageKey: string;
+  mobileImageUrl: string;
   linkType: CarouselLinkType;
   linkUrl: string | null;
   sortOrder: number;
@@ -29,19 +32,24 @@ interface CarouselRow extends RowDataPacket {
   updatedAt: string;
 }
 
-export interface PublicCarouselRow extends RowDataPacket {
+interface PublicCarouselRow extends RowDataPacket {
   id: number;
   title: string;
-  imageUrl: string;
+  desktopImageUrl: string;
+  mobileImageUrl: string;
   linkType: CarouselLinkType;
   linkUrl: string | null;
+  sortOrder: number;
+  isActive: number;
 }
 
 export interface Carousel {
   id: number;
   title: string;
-  imageKey: string;
-  imageUrl: string;
+  desktopImageKey: string;
+  desktopImageUrl: string;
+  mobileImageKey: string;
+  mobileImageUrl: string;
   linkType: CarouselLinkType;
   linkUrl: string | null;
   sortOrder: number;
@@ -50,10 +58,25 @@ export interface Carousel {
   updatedAt: string;
 }
 
+/** Admin API only omits imageKey/imageUrl-style ambiguity — the public endpoint never
+ *  returns *ImageKey (no reason for the frontend to know S3 object keys). */
+export interface PublicCarousel {
+  id: number;
+  title: string;
+  desktopImageUrl: string;
+  mobileImageUrl: string;
+  linkType: CarouselLinkType;
+  linkUrl: string | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+
 export interface CarouselWriteInput {
   title: string;
-  imageUrl: string;
-  imageKey: string;
+  desktopImageKey: string;
+  desktopImageUrl: string;
+  mobileImageKey: string;
+  mobileImageUrl: string;
   linkType: CarouselLinkType;
   linkUrl: string | null;
   sortOrder: number;
@@ -65,18 +88,27 @@ function toCarousel(row: CarouselRow): Carousel {
   return { ...row, isActive: Boolean(row.isActive) };
 }
 
+function toPublicCarousel(row: PublicCarouselRow): PublicCarousel {
+  return { ...row, isActive: Boolean(row.isActive) };
+}
+
 export class CarouselRepository {
   constructor(private readonly pool: Pool) {}
 
-  /** Public homepage endpoint: only active slides, only the columns the frontend needs. */
-  async findAllActiveForPublic(): Promise<PublicCarouselRow[]> {
+  /** Public homepage endpoint: only active slides, only the columns the frontend needs —
+   *  never desktopImageKey/mobileImageKey (S3 object keys are an admin/backend concern). */
+  async findAllActiveForPublic(): Promise<PublicCarousel[]> {
     const [rows] = await this.pool.query<PublicCarouselRow[]>(
-      `SELECT id, title, image_url AS imageUrl, link_type AS linkType, link_url AS linkUrl
+      `SELECT id, title,
+              desktop_image_url AS desktopImageUrl,
+              mobile_image_url AS mobileImageUrl,
+              link_type AS linkType, link_url AS linkUrl,
+              sort_order AS sortOrder, is_active AS isActive
        FROM carousel
        WHERE is_active = 1
        ORDER BY sort_order ASC, id ASC`,
     );
-    return rows;
+    return rows.map(toPublicCarousel);
   }
 
   async findAllForAdmin(): Promise<Carousel[]> {
@@ -104,12 +136,16 @@ export class CarouselRepository {
 
   async create(input: CarouselWriteInput): Promise<Carousel> {
     const [result] = await this.pool.query<ResultSetHeader>(
-      `INSERT INTO carousel (title, image_key, image_url, link_type, link_url, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO carousel
+         (title, desktop_image_key, desktop_image_url, mobile_image_key, mobile_image_url,
+          link_type, link_url, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.title,
-        input.imageKey,
-        input.imageUrl,
+        input.desktopImageKey,
+        input.desktopImageUrl,
+        input.mobileImageKey,
+        input.mobileImageUrl,
         input.linkType,
         input.linkUrl,
         input.sortOrder,
@@ -127,12 +163,16 @@ export class CarouselRepository {
     }
     await this.pool.query(
       `UPDATE carousel
-       SET title = ?, image_key = ?, image_url = ?, link_type = ?, link_url = ?, sort_order = ?, is_active = ?
+       SET title = ?, desktop_image_key = ?, desktop_image_url = ?,
+           mobile_image_key = ?, mobile_image_url = ?,
+           link_type = ?, link_url = ?, sort_order = ?, is_active = ?
        WHERE id = ?`,
       [
         input.title,
-        input.imageKey,
-        input.imageUrl,
+        input.desktopImageKey,
+        input.desktopImageUrl,
+        input.mobileImageKey,
+        input.mobileImageUrl,
         input.linkType,
         input.linkUrl,
         input.sortOrder,

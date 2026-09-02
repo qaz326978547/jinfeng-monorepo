@@ -24,6 +24,7 @@ const TEST_ENV_SOURCE: NodeJS.ProcessEnv = {
   AWS_S3_BUCKET: 'test-bucket',
   AWS_ACCESS_KEY_ID: 'test-access-key-id',
   AWS_SECRET_ACCESS_KEY: 'test-secret-access-key',
+  AWS_S3_PUBLIC_BASE_URL: 'https://cdn.test.example.com',
 };
 
 export function createMockPool(overrides: Partial<Pool> = {}): Pool {

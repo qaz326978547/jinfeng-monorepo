@@ -3,56 +3,83 @@
     <!-- Hero Section (Carousel) -->
     <header
       id="hero"
-      class="relative bg-blue-900 pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden min-h-[600px] flex items-center"
+      class="relative mt-[50px] overflow-hidden"
+      :class="carouselSlides.length === 0 ? 'flex items-center min-h-[300px] pb-20 lg:pt-48 lg:pb-32' : ''"
     >
-      <!-- 輪播圖區域：資料來自 GET /api/v2/carousels，空陣列或 API 失敗時僅不顯示背景圖，不影響其餘版面 -->
-      <div
-        v-for="(slide, index) in carouselSlides"
-        :key="slide.id"
-        :class="`absolute inset-0 transition-opacity duration-1000 ${
-          currentHeroSlide === index ? 'opacity-40' : 'opacity-0'
-        }`"
-      >
-        <NuxtLink
-          v-if="slide.linkType === 'internal' && slide.linkUrl"
-          :to="slide.linkUrl"
-          class="block h-full w-full"
-        >
-          <img
-            :src="slide.imageUrl"
-            :alt="slide.title"
-            class="h-full w-full object-cover"
-            :loading="index === 0 ? 'eager' : 'lazy'"
-            :fetchpriority="index === 0 ? 'high' : 'auto'"
-          />
-        </NuxtLink>
-        <a
-          v-else-if="slide.linkType === 'external' && slide.linkUrl"
-          :href="slide.linkUrl"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="block h-full w-full"
-        >
-          <img
-            :src="slide.imageUrl"
-            :alt="slide.title"
-            class="h-full w-full object-cover"
-            :loading="index === 0 ? 'eager' : 'lazy'"
-            :fetchpriority="index === 0 ? 'high' : 'auto'"
-          />
-        </a>
-        <div v-else class="h-full w-full">
-          <img
-            :src="slide.imageUrl"
-            :alt="slide.title"
-            class="h-full w-full object-cover"
-            :loading="index === 0 ? 'eager' : 'lazy'"
-            :fetchpriority="index === 0 ? 'high' : 'auto'"
+      <!-- 輪播圖區域：資料來自 GET /api/v2/carousels，空陣列或 API 失敗時 fallback 到下方靜態文案。 -->
+      <!-- 響應式比例：< 768px 用 mobile 圖（7:8 比例），>= 768px 用 desktop 圖（16:9 比例）。用
+           <picture><source media="(max-width: 767px)"> 讓瀏覽器自己決定下載哪張，不會兩張都拉。
+           外層 aspect-ratio 容器不管圖片有沒有載完都固定佔位，避免 CLS。 -->
+      <!-- 只在畫面中放「目前這一張」（非多張絕對定位疊圖），#hero 的高度才會直接跟著這個比例容器走。 -->
+      <template v-if="carouselSlides.length > 0 && currentSlide">
+        <div class="relative aspect-[7/8] w-full md:aspect-[16/9]">
+          <Transition name="fade" mode="out-in">
+            <div :key="currentSlide.id" class="h-full w-full">
+              <NuxtLink
+                v-if="currentSlide.linkType === 'internal' && currentSlide.linkUrl"
+                :to="currentSlide.linkUrl"
+                class="block h-full w-full"
+              >
+                <picture class="block h-full w-full">
+                  <source media="(max-width: 767px)" :srcset="currentSlide.mobileImageUrl" />
+                  <img
+                    :src="currentSlide.desktopImageUrl"
+                    :alt="currentSlide.title"
+                    class="h-full w-full object-contain"
+                    :loading="currentHeroSlide === 0 ? 'eager' : 'lazy'"
+                    :fetchpriority="currentHeroSlide === 0 ? 'high' : 'auto'"
+                  />
+                </picture>
+              </NuxtLink>
+              <a
+                v-else-if="currentSlide.linkType === 'external' && currentSlide.linkUrl"
+                :href="currentSlide.linkUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="block h-full w-full"
+              >
+                <picture class="block h-full w-full">
+                  <source media="(max-width: 767px)" :srcset="currentSlide.mobileImageUrl" />
+                  <img
+                    :src="currentSlide.desktopImageUrl"
+                    :alt="currentSlide.title"
+                    class="h-full w-full object-cover"
+                    :loading="currentHeroSlide === 0 ? 'eager' : 'lazy'"
+                    :fetchpriority="currentHeroSlide === 0 ? 'high' : 'auto'"
+                  />
+                </picture>
+              </a>
+              <div v-else class="block h-full w-full">
+                <picture class="block h-full w-full">
+                  <source media="(max-width: 767px)" :srcset="currentSlide.mobileImageUrl" />
+                  <img
+                    :src="currentSlide.desktopImageUrl"
+                    :alt="currentSlide.title"
+                    class="h-full w-full object-cover"
+                    :loading="currentHeroSlide === 0 ? 'eager' : 'lazy'"
+                    :fetchpriority="currentHeroSlide === 0 ? 'high' : 'auto'"
+                  />
+                </picture>
+              </div>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- Carousel Indicators -->
+        <div v-if="carouselSlides.length > 1" class="flex justify-center gap-2 py-4">
+          <button
+            v-for="(slide, index) in carouselSlides"
+            :key="slide.id"
+            @click="currentHeroSlide = index"
+            :class="`h-3 w-3 rounded-full transition-all ${
+              currentHeroSlide === index ? 'bg-blue-900 w-6' : 'bg-slate-300'
+            }`"
           />
         </div>
-      </div>
+      </template>
 
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center">
+      <!-- 沒有輪播圖資料時顯示的預設宣傳文案 -->
+      <div v-else class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center">
         <div class="max-w-4xl mx-auto">
           <h1
             class="text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-tight mb-6 drop-shadow-lg"
@@ -78,18 +105,6 @@
               了解服務項目
             </a>
           </div>
-        </div>
-
-        <!-- Carousel Indicators -->
-        <div v-if="carouselSlides.length > 1" class="flex justify-center mt-12 space-x-2">
-          <button
-            v-for="(slide, index) in carouselSlides"
-            :key="slide.id"
-            @click="currentHeroSlide = index"
-            :class="`w-3 h-3 rounded-full transition-all ${
-              currentHeroSlide === index ? 'bg-amber-400 w-6' : 'bg-white/50'
-            }`"
-          />
         </div>
       </div>
     </header>
@@ -163,6 +178,9 @@ const carouselSlides = computed(() => carouselData.value ?? []);
 
 // Hero Carousel State
 const currentHeroSlide = ref(0);
+// 一次只渲染「目前這一張」（而不是多張絕對定位疊圖），#hero 的高度才會直接由這張圖片的
+// 實際高度決定，而不是被其他張圖片撐開或維持固定高度。
+const currentSlide = computed(() => carouselSlides.value[currentHeroSlide.value] ?? null);
 
 // Services Data
 const services = [
@@ -220,15 +238,15 @@ const services = [
 
 // Hero Carousel Auto-play（只有 2 張以上時才需要輪播）
 onMounted(() => {
-  if (carouselSlides.value.length < 2) {
-    return;
-  }
+  // if (carouselSlides.value.length < 2) {
+  //   return;
+  // }
 
-  const timer = setInterval(() => {
-    currentHeroSlide.value = (currentHeroSlide.value + 1) % carouselSlides.value.length;
-  }, 5000);
+  // const timer = setInterval(() => {
+  //   currentHeroSlide.value = (currentHeroSlide.value + 1) % carouselSlides.value.length;
+  // }, 5000);
 
-  onUnmounted(() => clearInterval(timer));
+  // onUnmounted(() => clearInterval(timer));
 });
 </script>
 
@@ -239,5 +257,15 @@ onMounted(() => {
 
 [style*="display: block"] {
   height: auto !important;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.6s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
