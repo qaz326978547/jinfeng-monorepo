@@ -48,6 +48,12 @@
           >
             常見問題
           </nuxt-link>
+          <nuxt-link
+            class="text-sm font-medium text-slate-600 hover:text-blue-900 transition duration-300"
+            to="/labor-news"
+          >
+            勞資 News
+          </nuxt-link>
           <button
             class="text-sm font-medium text-slate-600 hover:text-blue-900 transition duration-300"
             @click="openModel"
@@ -116,6 +122,13 @@
               to="/faq"
             >
               F&Q
+            </nuxt-link>
+            <nuxt-link
+              @click="navToggle = false"
+              class="block px-3 py-2 rounded-md text-base font-medium text-slate-700 hover:text-blue-900 hover:bg-slate-50"
+              to="/labor-news"
+            >
+              勞資 News
             </nuxt-link>
             <button
               @click="openModel"

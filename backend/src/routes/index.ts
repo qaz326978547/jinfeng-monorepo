@@ -14,6 +14,8 @@ import { createFaqRouter } from '../modules/faq/faq.routes';
 import { createAdminFaqRouter } from '../modules/faq/admin-faq.routes';
 import { createCarouselRouter } from '../modules/carousel/carousel.routes';
 import { createAdminCarouselRouter } from '../modules/carousel/admin-carousel.routes';
+import { createLaborNewsRouter } from '../modules/labor-news/labor-news.routes';
+import { createAdminLaborNewsRouter } from '../modules/labor-news/admin-labor-news.routes';
 import { createSeoRouter } from '../modules/seo/seo.routes';
 import type { MailConfig } from '../infrastructure/mail/mail.config';
 import type { S3Config } from '../infrastructure/storage/s3.config';
@@ -94,6 +96,12 @@ export function createRootRouter(deps: RouterDeps): Router {
       s3Config: deps.s3Config,
       logger: deps.logger,
     }),
+  );
+  // 勞資 News: also a brand-new Node/Admin feature, no legacy contract.
+  apiV2.use('/labor-news', createLaborNewsRouter({ pool: deps.pool }));
+  apiV2.use(
+    '/admin/labor-news',
+    createAdminLaborNewsRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }),
   );
   // Remaining admin/* writes (POST/PUT/DELETE contact-class, DELETE contact)
   // mount here in a later batch; PUT /admin/contact/{id} is deferred (§11).

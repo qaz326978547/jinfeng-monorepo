@@ -376,6 +376,54 @@ components:
       required: [uploadUrl, imageKey, imageUrl]
       x-confirmation-status: NEW_NODE_FEATURE
 
+    PublicLaborNews:
+      type: object
+      description: >
+        Public projection of a 勞資 News item. New Node/Admin feature, no legacy table or
+        contract to mirror — camelCase field names, same convention as PublicCarousel. No
+        image support in this first version (imageKey/imageUrl deliberately omitted).
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        sourceName: { type: string }
+        sourceUrl: { type: string, format: uri }
+        publishedAt: { type: string, format: date }
+        sortOrder: { type: integer, minimum: 0 }
+      required: [id, title, sourceName, sourceUrl, publishedAt, sortOrder]
+      x-confirmation-status: NEW_NODE_FEATURE
+
+    LaborNews:
+      type: object
+      description: Admin-facing representation of a 勞資 News item — adds isActive/createdAt/updatedAt over PublicLaborNews.
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        sourceName: { type: string }
+        sourceUrl: { type: string, format: uri }
+        publishedAt: { type: string, format: date }
+        sortOrder: { type: integer, minimum: 0 }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, title, sourceName, sourceUrl, publishedAt, sortOrder, isActive, createdAt, updatedAt]
+      x-confirmation-status: NEW_NODE_FEATURE
+
+    LaborNewsWriteRequest:
+      type: object
+      description: >
+        Shared by POST /admin/labor-news and PUT /admin/labor-news/{id}. sortOrder has no
+        uniqueness requirement — duplicate values across rows are allowed and broken by
+        publishedAt DESC, then id DESC (see the ORDER BY used by every list endpoint).
+      properties:
+        title: { type: string }
+        sourceName: { type: string }
+        sourceUrl: { type: string, format: uri, description: "Must start with http:// or https://." }
+        publishedAt: { type: string, format: date, description: "YYYY-MM-DD." }
+        sortOrder: { type: integer, minimum: 0, description: "Smaller sorts first." }
+        isActive: { type: boolean }
+      required: [title, sourceName, sourceUrl, publishedAt, sortOrder, isActive]
+      x-confirmation-status: NEW_NODE_FEATURE
+
     RegisterRequest:
       type: object
       properties:
@@ -1245,6 +1293,164 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorMessage" }
         "503":
           description: AWS S3 not configured on this environment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/labor-news:
+    get:
+      operationId: getLaborNewsList
+      summary: 取得啟用中的勞資 News(分頁、可搜尋，新 Node/Admin 功能，無 legacy 對應)
+      description: >
+        Only isActive=true rows. Ordered by sort_order ASC, then publishedAt DESC, then id
+        DESC — manual sort_order always wins; publishedAt/id only break ties. pageSize is
+        caller-controlled (unlike PaginatedResponse's other consumers, which use a fixed
+        server-side page size): the homepage requests pageSize=5, the /labor-news list page
+        requests pageSize=10. No auth required.
+      tags: [Public]
+      x-confirmation-status: NEW_NODE_FEATURE
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+          description: "Invalid/missing values fall back to 1 (Laravel-style loose parsing, never a validation error)."
+        - name: pageSize
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+          description: "Invalid/missing values fall back to 10."
+        - name: keyword
+          in: query
+          required: false
+          schema: { type: string }
+          description: "LIKE '%keyword%' against title OR sourceName, parameterized (no raw SQL concatenation)."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/PublicLaborNews" }
+
+  /api/v2/admin/labor-news:
+    get:
+      operationId: adminListLaborNews
+      summary: 管理端：取得所有勞資 News(含未啟用，分頁)
+      description: >
+        Same sort_order ASC / publishedAt DESC / id DESC ordering as the public endpoint, but
+        includes isActive=false rows. Fixed server-side page size (10), matching the
+        GET /admin/contact convention — unlike the public endpoint, pageSize is not
+        client-adjustable here.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+          description: "Invalid/missing values fall back to 1."
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginatedResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/LaborNews" }
+    post:
+      operationId: adminCreateLaborNews
+      summary: 管理端：新增勞資 News
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LaborNewsWriteRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "新增成功" }
+                  data: { $ref: "#/components/schemas/LaborNews" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+
+  /api/v2/admin/labor-news/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      operationId: adminUpdateLaborNews
+      summary: 管理端：更新勞資 News(含排序 sortOrder)
+      description: >
+        Allows changing sortOrder to control display order — sortOrder has no uniqueness
+        requirement, duplicate values across rows are allowed. 404 if the id does not exist.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LaborNewsWriteRequest" }
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: "#/components/schemas/LaborNews" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+    delete:
+      operationId: adminDeleteLaborNews
+      summary: 管理端：刪除勞資 News(單筆，非批次；與 carousel 相同慣例)
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      responses:
+        "200":
+          description: 刪除成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 找不到資料
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorMessage" }

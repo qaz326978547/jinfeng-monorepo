@@ -140,6 +140,46 @@
         </div>
       </div>
     </section>
+
+    <!-- 勞資 News Section -->
+    <section id="labor-news" class="py-20 bg-slate-50">
+      <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-16">
+          <p class="text-blue-900 font-bold text-base uppercase tracking-wider mb-2">News</p>
+          <h2 class="text-3xl md:text-4xl font-bold text-slate-900">勞資 News</h2>
+          <div class="w-20 h-1 bg-amber-500 mx-auto mt-4 rounded-full"></div>
+        </div>
+
+        <!-- 固定顯示後端依 sort_order/publishedAt/id 排序後的前 5 筆，前端不再自行 .sort()/.slice()。 -->
+        <ul
+          v-if="laborNewsList.length > 0"
+          class="divide-y divide-slate-200 rounded-xl bg-white shadow-sm overflow-hidden"
+        >
+          <li v-for="item in laborNewsList" :key="item.id">
+            <a
+              :href="item.sourceUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="block px-6 py-5 hover:bg-slate-50 transition duration-300"
+            >
+              <p class="text-sm text-slate-500 mb-1">
+                {{ item.publishedAt.replaceAll("-", "/") }}　{{ item.sourceName }}
+              </p>
+              <p class="text-slate-900 font-medium leading-relaxed">{{ item.title }}</p>
+            </a>
+          </li>
+        </ul>
+
+        <div class="text-center mt-8">
+          <NuxtLink
+            to="/labor-news"
+            class="inline-flex items-center justify-center px-8 py-3 border border-blue-900 text-blue-900 rounded-lg font-medium hover:bg-blue-900 hover:text-white transition duration-300"
+          >
+            更多新聞
+          </NuxtLink>
+        </div>
+      </div>
+    </section>
   </div>
   <SignUpClassForm />
 </template>
@@ -147,6 +187,7 @@
 <script setup lang="ts">
 import { usePublicStore } from "@/store/usePublicStore";
 import type { PublicCarouselData } from "@/api/interface/carousel";
+import type { LaborNewsListData } from "@/api/interface/laborNews";
 import iconLaborContract from "~/assets/img/services/01-labor-contract.png";
 import iconWorkRules from "~/assets/img/services/02-work-rules.png";
 import iconSalaryStructure from "~/assets/img/services/03-salary-structure.png";
@@ -185,6 +226,21 @@ const { data: carouselData } = await useFetch<PublicCarouselData[]>("/carousels"
 });
 
 const carouselSlides = computed(() => carouselData.value ?? []);
+
+// 勞資 News：固定顯示後台排序後（sort_order ASC, publishedAt DESC, id DESC）的前 5 筆
+// active 新聞。同樣失敗時 fallback 到空陣列，不讓整頁 500 —— 只是這裡沒有靜態文案可
+// fallback，區塊會直接不顯示任何新聞列表，只留「更多新聞」連結。
+const { data: laborNewsData } = await useFetch<LaborNewsListData>("/labor-news", {
+  method: "GET",
+  baseURL: apiBaseUrl.value,
+  query: { page: 1, pageSize: 5 },
+  headers: {
+    "Content-Type": "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+  },
+});
+
+const laborNewsList = computed(() => laborNewsData.value?.data ?? []);
 
 // Hero Carousel State
 const currentHeroSlide = ref(0);

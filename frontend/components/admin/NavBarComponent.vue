@@ -28,6 +28,9 @@
                     <li class="my-2">
                         <nuxt-link class="py-2" to="/admin/carousel"> 輪播圖管理 </nuxt-link>
                     </li>
+                    <li class="my-2">
+                        <nuxt-link class="py-2" to="/admin/labor-news"> 勞資 News 管理 </nuxt-link>
+                    </li>
                 </ul>
             </li>
         </ul>

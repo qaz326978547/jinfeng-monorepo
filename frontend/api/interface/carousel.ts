@@ -55,6 +55,7 @@ export const INTERNAL_LINK_OPTIONS: Array<{ label: string; path: string }> = [
     { label: '首頁', path: '/' },
     { label: '關於我們', path: '/about' },
     { label: '常見問題', path: '/faq' },
+    { label: '勞資 News', path: '/labor-news' },
     { label: '勞資法規說明', path: '/labor-info' },
     { label: '勞資爭議', path: '/labor-dispute' },
     { label: '職業災害', path: '/occupational-accident' },
