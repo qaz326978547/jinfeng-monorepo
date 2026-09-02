@@ -120,22 +120,22 @@
           <div class="w-20 h-1 bg-amber-500 mx-auto mt-4 rounded-full"></div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        <div class="grid grid-cols-2  lg:grid-cols-5 gap-6">
           <div
             v-for="(service, index) in services"
             :key="index"
-            class="bg-slate-50 p-6 rounded-xl border border-slate-100 hover:shadow-lg hover:-translate-y-1 transition duration-300 group"
+            class="bg-slate-50 p-6 rounded-xl border border-slate-100 text-center hover:shadow-lg hover:-translate-y-1 transition duration-300 group"
           >
-            <div
-              class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-blue-900 transition duration-300"
-            >
-              <Icon
-                :name="service.icon"
-                class="text-2xl text-blue-900 group-hover:text-white transition duration-300"
+            <div class="w-24 h-24 mb-4 mx-auto">
+              <img
+                :src="service.icon"
+                :alt="service.title"
+                class="w-full h-full object-contain"
+                loading="lazy"
               />
             </div>
-            <h3 class="text-lg font-bold text-slate-900 mb-2">{{ service.title }}</h3>
-            <p class="text-sm text-slate-600 leading-relaxed">{{ service.desc }}</p>
+            <h3 class="font-bold text-slate-900 mb-2">{{ service.title }}</h3>
+            <!-- <p class="text-sm text-slate-600 leading-relaxed">{{ service.desc }}</p> -->
           </div>
         </div>
       </div>
@@ -147,6 +147,16 @@
 <script setup lang="ts">
 import { usePublicStore } from "@/store/usePublicStore";
 import type { PublicCarouselData } from "@/api/interface/carousel";
+import iconLaborContract from "~/assets/img/services/01-labor-contract.png";
+import iconWorkRules from "~/assets/img/services/02-work-rules.png";
+import iconSalaryStructure from "~/assets/img/services/03-salary-structure.png";
+import iconOccupationalRisk from "~/assets/img/services/04-occupational-risk.png";
+import iconTalentRetention from "~/assets/img/services/05-talent-retention.png";
+import iconLaborManagementMeeting from "~/assets/img/services/06-labor-management-meeting.png";
+import iconLaborDispute from "~/assets/img/services/07-labor-dispute.png";
+import iconWorkplaceHarassment from "~/assets/img/services/08-workplace-harassment.png";
+import iconCloudAttendance from "~/assets/img/services/09-cloud-attendance.png";
+import iconLaborInspection from "~/assets/img/services/10-labor-inspection.png";
 
 const { apiBaseUrl } = storeToRefs(usePublicStore());
 
@@ -185,52 +195,52 @@ const currentSlide = computed(() => carouselSlides.value[currentHeroSlide.value]
 // Services Data
 const services = [
   {
-    icon: "tabler:file-text",
+    icon: iconLaborContract,
     title: "量身訂做勞動契約",
     desc: "依據企業屬性,制定合規且完善的勞動契約。",
   },
   {
-    icon: "tabler:book",
+    icon: iconWorkRules,
     title: "客製化工作規則並協助送審",
     desc: "建立明確管理制度,並協助完成政府核備程序。",
   },
   {
-    icon: "tabler:calculator",
+    icon: iconSalaryStructure,
     title: "薪資結構調整",
     desc: "優化薪資設計,符合法規並兼顧經營成本。",
   },
   {
-    icon: "tabler:shield-check",
+    icon: iconOccupationalRisk,
     title: "職業災害風險轉嫁規劃",
     desc: "完善的保險規劃,降低企業職災賠償風險。",
   },
   {
-    icon: "tabler:user-check",
+    icon: iconTalentRetention,
     title: "規劃人才留根計畫",
     desc: "設計激勵機制,留住核心人才,降低流動率。",
   },
   {
-    icon: "tabler:users",
+    icon: iconLaborManagementMeeting,
     title: "協助成立勞資會議",
     desc: "輔導召開勞資會議,促進雙方溝通與和諧。",
   },
   {
-    icon: "tabler:gavel",
+    icon: iconLaborDispute,
     title: "勞資爭議處理",
     desc: "專業協調與法律諮詢,快速解決勞資糾紛。",
   },
   {
-    icon: "tabler:alert-circle",
+    icon: iconWorkplaceHarassment,
     title: "工作場所性騷擾防治",
     desc: "協助訂立防治措施,建立友善職場環境。",
   },
   {
-    icon: "tabler:cloud",
+    icon: iconCloudAttendance,
     title: "專利雲端打卡系統",
     desc: "數位化出勤管理,精準紀錄工時,避免爭議。",
   },
   {
-    icon: "tabler:briefcase",
+    icon: iconLaborInspection,
     title: "勞動檢查預防及處理",
     desc: "模擬勞檢實況,協助企業提前改善缺失。",
   },
