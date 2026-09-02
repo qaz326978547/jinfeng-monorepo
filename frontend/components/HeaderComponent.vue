@@ -12,7 +12,7 @@
             to="/"
             class="text-xl md:text-2xl font-bold text-blue-900 tracking-wider"
           >
-            金豐集團<span class="text-amber-500">.</span>
+            金豐集團
           </nuxt-link>
         </div>
 

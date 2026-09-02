@@ -44,6 +44,28 @@ const envSchema = z.object({
   MAIL_FROM_ADDRESS: z.string().default('no-reply@example.com'),
   MAIL_FROM_NAME: z.string().default('Jinfeng'),
   RECIPIENT_EMAIL: z.string().default(''),
+
+  // AWS S3 is optional at the schema level, same rationale as MAIL_* above: an unset
+  // AWS_S3_BUCKET means "S3 not configured" (local dev, or before Ops provisions an IAM
+  // user), not a startup failure. Endpoints that need S3 (upload-url, delete) must handle
+  // a null S3 client — see infrastructure/storage/s3-client.ts.
+  AWS_REGION: z.string().default(''),
+  AWS_S3_BUCKET: z.string().default(''),
+  AWS_ACCESS_KEY_ID: z.string().default(''),
+  AWS_SECRET_ACCESS_KEY: z.string().default(''),
+  // Public read access to carousel images goes through CloudFront (private S3 bucket), not a
+  // direct *.s3.<region>.amazonaws.com URL — see infrastructure/storage/carousel-image-key.ts.
+  // Optional at the schema level for the same reason as the other AWS_* vars: an unset value
+  // means "S3/CDN not configured" (local dev), not a startup failure. When set, must be an
+  // http(s) origin with no trailing slash so `${AWS_S3_PUBLIC_BASE_URL}/${imageKey}` composes
+  // cleanly (e.g. https://cdn.laborservice5690.com).
+  AWS_S3_PUBLIC_BASE_URL: z.string().default('').refine(
+    (value) => value === '' || (/^https?:\/\//i.test(value) && !value.endsWith('/')),
+    {
+      message:
+        'AWS_S3_PUBLIC_BASE_URL must be an http(s) URL with no trailing slash (e.g. https://cdn.example.com)',
+    },
+  ),
 });
 
 export type Env = z.infer<typeof envSchema>;

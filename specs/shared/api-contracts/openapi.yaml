@@ -285,6 +285,97 @@ components:
       required: [name, info, "no"]
       x-confirmation-status: NEW_NODE_FEATURE
 
+    Carousel:
+      type: object
+      description: >
+        Admin-facing representation of a homepage carousel slide. New Node/Admin feature, no
+        legacy table or contract to mirror — field names are camelCase (unlike Contact/Faq,
+        which mirror Laravel Eloquent's snake_case JSON) per this feature's own requirements.
+        Each slide carries TWO independent images (desktop 1920x1080 16:9, mobile 700x800
+        7:8) — one carousel row, not two — the frontend picks the right one via a CSS
+        <picture> breakpoint (max-width: 767px), not a separate carousel entry per device.
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        desktopImageKey: { type: string, description: "Backend-generated S3 object key, e.g. carousel/desktop/{uuid}.webp — never client-supplied." }
+        desktopImageUrl: { type: string, format: uri, description: "CloudFront URL, derived server-side from AWS_S3_PUBLIC_BASE_URL + desktopImageKey." }
+        mobileImageKey: { type: string, description: "Backend-generated S3 object key, e.g. carousel/mobile/{uuid}.webp — never client-supplied." }
+        mobileImageUrl: { type: string, format: uri, description: "CloudFront URL, derived server-side from AWS_S3_PUBLIC_BASE_URL + mobileImageKey." }
+        linkType: { type: string, enum: [internal, external, none] }
+        linkUrl: { type: [string, "null"] }
+        sortOrder: { type: integer }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, title, desktopImageKey, desktopImageUrl, mobileImageKey, mobileImageUrl, linkType, linkUrl, sortOrder, isActive, createdAt, updatedAt]
+      x-confirmation-status: NEW_NODE_FEATURE
+
+    PublicCarousel:
+      type: object
+      description: >
+        Public homepage projection — only the fields the frontend carousel actually renders.
+        Never exposes desktopImageKey/mobileImageKey (S3 object keys are an admin/backend
+        concern only).
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        desktopImageUrl: { type: string, format: uri }
+        mobileImageUrl: { type: string, format: uri }
+        linkType: { type: string, enum: [internal, external, none] }
+        linkUrl: { type: [string, "null"] }
+        sortOrder: { type: integer }
+        isActive: { type: boolean, description: "Always true in practice — the query already filters is_active=1 — but included for parity with the admin shape." }
+      required: [id, title, desktopImageUrl, mobileImageUrl, linkType, linkUrl, sortOrder, isActive]
+      x-confirmation-status: NEW_NODE_FEATURE
+
+    CarouselWriteRequest:
+      type: object
+      description: >
+        Shared by POST /admin/carousels and PUT /admin/carousels/{id}. New Node/Admin
+        feature. Only *ImageKey is accepted — never *ImageUrl — the public URL is always
+        derived server-side from AWS_S3_PUBLIC_BASE_URL + key, so a client can never make
+        the stored URL point somewhere it doesn't control. Both desktop and mobile keys are
+        required on every write, including update: to keep an image unchanged on edit, the
+        caller resends that image's existing key; to replace one, it resends a fresh key
+        obtained from POST /admin/carousels/upload-url.
+      properties:
+        title: { type: string }
+        desktopImageKey: { type: string }
+        mobileImageKey: { type: string }
+        linkType: { type: string, enum: [internal, external, none] }
+        linkUrl: { type: [string, "null"], description: "Required and must start with '/' when linkType=internal; required and must start with http(s):// when linkType=external; ignored/null when linkType=none." }
+        sortOrder: { type: integer }
+        isActive: { type: boolean }
+      required: [title, desktopImageKey, mobileImageKey, linkType, sortOrder, isActive]
+      x-confirmation-status: NEW_NODE_FEATURE
+
+    CarouselUploadUrlRequest:
+      type: object
+      description: >
+        Requests a short-lived (5 minute) presigned S3 PUT URL. fileSize is not part of the
+        minimal "what to upload" contract but is required so the server can bind
+        ContentLength into the presigned request — the only way to actually enforce the 5MB
+        cap given a plain presigned PUT (as opposed to a presigned POST with policy
+        conditions). variant picks the S3 key prefix (carousel/desktop/... vs
+        carousel/mobile/...), both still under carousel/* so the existing IAM policy
+        (arn:aws:s3:::<bucket>/carousel/*) covers both without change.
+      properties:
+        fileName: { type: string, description: "Informational only — never used to derive the S3 key or path." }
+        contentType: { type: string, enum: [image/jpeg, image/png, image/webp] }
+        fileSize: { type: integer, maximum: 5242880, description: "Bytes. Max 5MB (5 * 1024 * 1024)." }
+        variant: { type: string, enum: [desktop, mobile] }
+      required: [fileName, contentType, fileSize, variant]
+      x-confirmation-status: NEW_NODE_FEATURE
+
+    CarouselUploadUrlResponse:
+      type: object
+      properties:
+        uploadUrl: { type: string, format: uri, description: "Presigned S3 PUT URL, expires in 5 minutes." }
+        imageKey: { type: string }
+        imageUrl: { type: string, format: uri, description: "Final public URL once the PUT completes." }
+      required: [uploadUrl, imageKey, imageUrl]
+      x-confirmation-status: NEW_NODE_FEATURE
+
     RegisterRequest:
       type: object
       properties:
@@ -361,13 +452,13 @@ paths:
                   relate_id: 0
                   tag: "home"
                   name: "首頁"
-                  title: "晉峰"
-                  description: "晉峰法律事務所"
+                  title: "金豐"
+                  description: "金豐企業管理顧問股份有限公司"
                   url: "/"
                   type: "website"
-                  keyword: "法律,晉峰"
+                  keyword: "企業管理顧問,金豐"
                   pic: "seo.jpg"
-                  pic_alt: "晉峰"
+                  pic_alt: "金豐"
                   del: 0
                   created_at: "2024-06-25T00:00:00Z"
                   updated_at: "2024-06-25T00:00:00Z"
@@ -974,3 +1065,186 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PaginatedResponse" }
+
+  /api/v2/carousels:
+    get:
+      operationId: getCarouselList
+      summary: 取得目前啟用中的首頁輪播圖（新 Node/Admin 功能，無 legacy 對應）
+      description: Only isActive=true rows, ordered by sortOrder ASC. No auth required.
+      tags: [Public]
+      x-confirmation-status: NEW_NODE_FEATURE
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PublicCarousel" }
+
+  /api/v2/admin/carousels:
+    get:
+      operationId: adminListCarousels
+      summary: 管理端：取得所有輪播圖（含未啟用）
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Carousel" }
+    post:
+      operationId: adminCreateCarousel
+      summary: 管理端：新增輪播圖
+      description: >
+        Both desktopImageKey and mobileImageKey are required and must come from a prior
+        POST /admin/carousels/upload-url + direct S3 PUT (once per image) — this endpoint
+        does not accept file uploads. desktopImageUrl/mobileImageUrl are never accepted from
+        the client; they are derived server-side from AWS_S3_PUBLIC_BASE_URL + the given keys.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CarouselWriteRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "新增成功" }
+                  data: { $ref: "#/components/schemas/Carousel" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+
+  /api/v2/admin/carousels/upload-url:
+    post:
+      operationId: adminCreateCarouselUploadUrl
+      summary: 管理端：取得輪播圖片的 S3 Presigned Upload URL
+      description: >
+        Backend generates the S3 object key from `variant` (carousel/desktop/{uuid}.ext or
+        carousel/mobile/{uuid}.ext) — the client-supplied fileName is informational only and
+        is never used as or to derive the key/path. contentType is restricted to
+        image/jpeg, image/png, image/webp. fileSize is validated against a 5MB cap and bound
+        into the presigned request's ContentLength so S3 itself rejects a PUT that doesn't
+        match. The presigned uploadUrl is signed directly against S3 (not routed through
+        CloudFront, which only serves reads) and expires in 5 minutes.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CarouselUploadUrlRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CarouselUploadUrlResponse" }
+        "400":
+          description: Validation error (unsupported contentType, fileSize over 5MB, etc.)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+        "503":
+          description: AWS S3 not configured on this environment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/carousels/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      operationId: adminUpdateCarousel
+      summary: 管理端：更新輪播圖
+      description: >
+        desktopImageKey/mobileImageKey are diffed independently against the existing row: for
+        whichever image actually changed, the OLD S3 object is deleted only after this DB
+        update succeeds (never before) — a failure to delete an old image is logged but does
+        not fail this request, since the DB write (the source of truth) has already
+        committed. To keep an image unchanged, resend its existing key.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CarouselWriteRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "更新成功" }
+                  data: { $ref: "#/components/schemas/Carousel" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+    delete:
+      operationId: adminDeleteCarousel
+      summary: 管理端：刪除輪播圖（單筆，非批次；與 FAQ/contact-class 的批次 delete 慣例不同）
+      description: >
+        Deliberately single-id (path param), unlike FAQ/contact-class's batch `DELETE /` with
+        a body {ids}. Deletion is coupled to BOTH S3 objects (read record -> delete desktop
+        object -> delete mobile object -> delete DB row, in that order): a genuine S3 delete
+        failure on either image (not simply "object already missing", which S3 treats as a
+        success) returns 500 and leaves the DB row untouched, so there is never a DB row
+        pointing at a deleted image nor a deleted row whose image might still exist. If
+        desktop deletes but mobile then fails, a retry is safe — re-deleting the already-gone
+        desktop key is a no-op.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      responses:
+        "200":
+          description: 刪除成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 找不到資料
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "500":
+          description: S3 刪除失敗，DB 未變更
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "503":
+          description: AWS S3 not configured on this environment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }

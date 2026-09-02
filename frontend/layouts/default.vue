@@ -1,5 +1,5 @@
 <template>
-    <div class="pt-[70px] lg:pt-[120px]">
+    <div class="pt-[70px] lg:pt-[100px]">
         <div>
             <HeaderComponent />
             <slot />
