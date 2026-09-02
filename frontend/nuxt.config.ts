@@ -20,8 +20,7 @@ export default defineNuxtConfig({
         '@nuxt/content',
         'nuxt-schema-org',
         '@nuxtjs/sitemap',
-        '@pinia/nuxt',
-        "@nuxt/image"
+        '@pinia/nuxt'
     ],
     site: {
         url: 'https://laborservice5690.com',
