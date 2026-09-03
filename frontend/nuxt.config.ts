@@ -6,9 +6,9 @@ export default defineNuxtConfig({
         transpile: ['@iconify/vue']
     },
     routeRules: {
-        // 原本 3 天(259200s) ISR 快取會讓後台輪播圖編輯延遲最多 3 天才會反映到前台，
-        // 改成 5 分鐘，兼顧「仍有 SSR 快取降低伺服器負擔」與「編輯後合理時間內看得到效果」。
-        '/': { isr: 300 },
+        // 首頁沒有 route rule = 沿用上面全域 ssr: true 的預設行為：每次 request 都重新 SSR，
+        // 不快取。先前用過 isr（3 天，後改 5 分鐘）想降低伺服器負擔，但快取沒有依 TTL
+        // revalidate，導致後台編輯輪播圖後前台一直顯示舊內容，因此移除。
         '/admin/**': { swr: 0 } // 後台實時抓資料
     },
     experimental: {
