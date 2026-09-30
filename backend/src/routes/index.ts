@@ -100,7 +100,15 @@ export function createRootRouter(deps: RouterDeps): Router {
   // Consultation ("免費諮詢"): brand-new Node/Admin feature, no legacy
   // contract — fully separate domain from contact/contact-class (course
   // registration), same treatment as Carousel.
-  apiV2.use('/consultations', createConsultationRouter({ pool: deps.pool }));
+  apiV2.use(
+    '/consultations',
+    createConsultationRouter({
+      pool: deps.pool,
+      mailConfig: deps.mailConfig,
+      mailTransport: deps.mailTransport,
+      logger: deps.logger,
+    }),
+  );
   apiV2.use(
     '/admin/consultations',
     createAdminConsultationRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }),
