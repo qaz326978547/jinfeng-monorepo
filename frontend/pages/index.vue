@@ -92,7 +92,7 @@
           </p>
           <div class="flex flex-col sm:flex-row gap-4 justify-center">
             <a
-              href="#register"
+              href="/labor-law-seminar"
               class="inline-flex items-center justify-center px-8 py-4 border border-transparent text-lg font-bold rounded-lg text-blue-900 bg-amber-400 hover:bg-amber-500 transition duration-300 shadow-lg transform hover:scale-105"
             >
               立即報名講座
@@ -141,7 +141,7 @@
       </div>
     </section>
   </div>
-  <SignUpClassForm />
+  <ConsultationForm />
 </template>
 
 <script setup lang="ts">

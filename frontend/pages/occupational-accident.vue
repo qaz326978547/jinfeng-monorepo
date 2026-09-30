@@ -76,7 +76,7 @@
             ← 回勞資法規說明總覽
           </NuxtLink>
           <NuxtLink
-            to="/#register"
+            to="/labor-law-seminar"
             class="ml-auto bg-amber-500 text-white px-5 py-2.5 rounded-full text-sm font-medium hover:bg-amber-600 transition"
           >
             了解講座課程與報名方式

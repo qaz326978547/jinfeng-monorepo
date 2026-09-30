@@ -14,6 +14,8 @@ import { createFaqRouter } from '../modules/faq/faq.routes';
 import { createAdminFaqRouter } from '../modules/faq/admin-faq.routes';
 import { createCarouselRouter } from '../modules/carousel/carousel.routes';
 import { createAdminCarouselRouter } from '../modules/carousel/admin-carousel.routes';
+import { createConsultationRouter } from '../modules/consultation/consultation.routes';
+import { createAdminConsultationRouter } from '../modules/consultation/admin-consultation.routes';
 import { createSeoRouter } from '../modules/seo/seo.routes';
 import type { MailConfig } from '../infrastructure/mail/mail.config';
 import type { S3Config } from '../infrastructure/storage/s3.config';
@@ -95,6 +97,15 @@ export function createRootRouter(deps: RouterDeps): Router {
       logger: deps.logger,
     }),
   );
+  // Consultation ("免費諮詢"): brand-new Node/Admin feature, no legacy
+  // contract — fully separate domain from contact/contact-class (course
+  // registration), same treatment as Carousel.
+  apiV2.use('/consultations', createConsultationRouter({ pool: deps.pool }));
+  apiV2.use(
+    '/admin/consultations',
+    createAdminConsultationRouter({ pool: deps.pool, jwtSecret: deps.jwtSecret }),
+  );
+
   // Remaining admin/* writes (POST/PUT/DELETE contact-class, DELETE contact)
   // mount here in a later batch; PUT /admin/contact/{id} is deferred (§11).
   router.use(API_V2_BASE_PATH, apiV2);

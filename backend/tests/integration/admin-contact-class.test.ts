@@ -146,6 +146,24 @@ describe('POST /api/v2/admin/contact-class', () => {
     expect(res.body).toEqual({ message: '新增成功', data: row });
   });
 
+  it('accepts a numeric string for no (regression: admin frontend sends "66", not 66, via a plain v-model text input)', async () => {
+    const row = contactClassRow({ id: 5, name: '新分類', no: 66 });
+    const { pool, queryFn } = mockContactClassWritePool({ finalRow: row });
+    const { app } = buildTestApp({ pool });
+
+    const res = await request(app)
+      .post('/api/v2/admin/contact-class')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ name: '新分類', no: '66' });
+
+    expect(res.status).toBe(201);
+    const insertCall = (queryFn.mock.calls as [string, unknown[]?][]).find(([sql]) =>
+      sql.startsWith('INSERT INTO contact_class'),
+    );
+    // Coerced to a real number before it ever reaches the repository/SQL params.
+    expect(insertCall?.[1]).toEqual(['新分類', 66]);
+  });
+
   it('never includes del in the INSERT — lets the DB DEFAULT 0 apply', async () => {
     const row = contactClassRow({ id: 5 });
     const { pool, queryFn } = mockContactClassWritePool({ finalRow: row });
@@ -235,6 +253,24 @@ describe('PUT /api/v2/admin/contact-class/{id}', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ message: '更新成功', data: updated });
+  });
+
+  it('accepts a numeric string for no on update (regression: reported 400 "no 為必填欄位" on PUT /admin/contact-class/69 with no: "66")', async () => {
+    const existing = contactClassRow({ id: 69, no: 10 });
+    const updated = contactClassRow({ id: 69, name: '高雄場', no: 66 });
+    const { pool, queryFn } = mockContactClassWritePool({ existsForUpdate: existing, finalRow: updated });
+    const { app } = buildTestApp({ pool });
+
+    const res = await request(app)
+      .put('/api/v2/admin/contact-class/69')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ name: '高雄場', no: '66' });
+
+    expect(res.status).toBe(200);
+    const updateCall = (queryFn.mock.calls as [string, unknown[]?][]).find(([sql]) =>
+      sql.startsWith('UPDATE contact_class'),
+    );
+    expect(updateCall?.[1]).toEqual(['高雄場', 66, 69]);
   });
 
   it('writes only name/no — never del', async () => {

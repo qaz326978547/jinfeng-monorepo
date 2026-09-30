@@ -78,7 +78,7 @@
                 基本工資自105年至113年已連續調漲，月薪總計調漲37.3%、時薪調漲52.5%，勞健保與勞退成本同步提高；勞動部也持續簡化線上檢舉流程，並推動勞動教育促進法，企業須更主動掌握法規動態。
               </p>
               <NuxtLink
-                to="/#register"
+                to="/labor-law-seminar"
                 class="text-blue-900 font-medium hover:text-blue-700 transition"
               >
                 查看講座課程內容與報名方式 →

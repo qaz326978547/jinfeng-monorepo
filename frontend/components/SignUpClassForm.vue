@@ -3,9 +3,12 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="text-center mb-16">
         <p class="text-blue-900 font-bold text-base uppercase tracking-wider mb-2">
-          Contact Us
+          Seminar Registration
         </p>
-        <h2 class="text-3xl md:text-4xl font-bold text-slate-900">報名與聯絡資訊</h2>
+        <h1 class="text-3xl md:text-4xl font-bold text-slate-900">勞動法務速成講座報名</h1>
+        <p class="text-slate-600 mt-4 max-w-2xl mx-auto">
+          請選擇欲參加的講座場次並填寫報名資料，我們將依您提供的資訊完成後續報名聯繫。
+        </p>
         <div class="w-20 h-1 bg-amber-500 mx-auto mt-4 rounded-full"></div>
       </div>
 
@@ -110,7 +113,7 @@
           <div
             class="bg-white p-8 md:p-10 rounded-2xl shadow-lg border border-slate-200 h-full"
           >
-            <h3 class="text-2xl font-bold text-slate-800 mb-6">講座報名 / 免費諮詢</h3>
+            <h3 class="text-2xl font-bold text-slate-800 mb-6">講座報名表單</h3>
             <p class="text-slate-600 mb-8">
               請填寫以下資訊,我們的團隊將在收到後盡快與您聯繫。
             </p>
