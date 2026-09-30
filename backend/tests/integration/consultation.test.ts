@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { buildTestApp, createMockPool } from '../helpers/build-test-app';
+import { buildTestApp, createMockPool, createMockMailTransport } from '../helpers/build-test-app';
 
 type QueryCall = [string, unknown[]?];
 
@@ -246,5 +246,54 @@ describe('POST /api/v2/consultations', () => {
       JSON.stringify(['afternoon', 'evening']),
       '想了解勞動契約相關問題',
     ]);
+  });
+});
+
+describe('POST /api/v2/consultations — mail (mock transport only — never a real SMTP connection)', () => {
+  it('sends the notification email when mail is configured and returns 201', async () => {
+    const { pool } = buildHappyPool();
+    const mailTransport = createMockMailTransport();
+    const { app } = buildTestApp({
+      pool,
+      env: { MAIL_HOST: 'smtp.test.local', RECIPIENT_EMAIL: 'ops@example.com' },
+      mailTransport,
+    });
+
+    const res = await request(app).post('/api/v2/consultations').send(validPayload());
+
+    expect(res.status).toBe(201);
+    expect(mailTransport.sendMail).toHaveBeenCalledTimes(1);
+    const sendMailMock = mailTransport.sendMail as ReturnType<typeof vi.fn>;
+    const sentMessage = sendMailMock.mock.calls[0]?.[0];
+    expect(sentMessage.to).toBe('ops@example.com');
+    expect(sentMessage.subject).toBe('新免費諮詢通知');
+    expect(sentMessage.text).toContain('王小明');
+    expect(sentMessage.text).toContain('下午 13:00～18:00、晚上 18:00～22:00');
+  });
+
+  it('keeps the saved consultation and still returns 201 when the mail send fails', async () => {
+    const { pool } = buildHappyPool();
+    const mailTransport = createMockMailTransport({
+      sendMail: vi.fn().mockRejectedValue(new Error('SMTP connection refused')),
+    });
+    const { app } = buildTestApp({
+      pool,
+      env: { MAIL_HOST: 'smtp.test.local', RECIPIENT_EMAIL: 'ops@example.com' },
+      mailTransport,
+    });
+
+    const res = await request(app).post('/api/v2/consultations').send(validPayload());
+
+    expect(res.status).toBe(201);
+    expect(mailTransport.sendMail).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips sending (no throw) when mail is not configured at all', async () => {
+    const { pool } = buildHappyPool();
+    const { app } = buildTestApp({ pool });
+
+    const res = await request(app).post('/api/v2/consultations').send(validPayload());
+
+    expect(res.status).toBe(201);
   });
 });

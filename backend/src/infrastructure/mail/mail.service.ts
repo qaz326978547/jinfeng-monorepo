@@ -1,7 +1,9 @@
 import type { Transporter } from 'nodemailer';
 import type { Logger } from 'pino';
 import type { ContactRow } from '../../modules/contact/contact.repository';
+import type { Consultation } from '../../modules/consultation/consultation.repository';
 import { buildContactNotificationMail } from './contact-notification.mail';
+import { buildConsultationNotificationMail } from './consultation-notification.mail';
 import type { MailConfig } from './mail.config';
 
 /**
@@ -46,6 +48,48 @@ export class ContactMailService {
           errorName: error instanceof Error ? error.name : 'UnknownError',
         },
         'Failed to send contact notification email; registration data was already saved',
+      );
+      return false;
+    }
+  }
+}
+
+/**
+ * Deliberately a separate class from ContactMailService — mirrors the
+ * "consultation is a fully independent domain from contact" rule already
+ * applied to the DB table, API routes, and admin data source. Same
+ * never-throw / DB-write-first policy as ContactMailService above.
+ */
+export class ConsultationMailService {
+  constructor(
+    private readonly transporter: Transporter | null,
+    private readonly config: Pick<MailConfig, 'fromAddress' | 'fromName' | 'recipientEmail'>,
+    private readonly logger: Logger,
+  ) {}
+
+  /** Returns true if the email was sent, false if skipped or failed (never throws). */
+  async sendConsultationNotification(consultation: Consultation): Promise<boolean> {
+    if (!this.transporter || !this.config.recipientEmail) {
+      this.logger.warn(
+        { code: 'CONSULTATION_MAIL_NOT_CONFIGURED', consultationId: consultation.id },
+        'MAIL_HOST or RECIPIENT_EMAIL not set; skipping consultation notification email',
+      );
+      return false;
+    }
+
+    try {
+      await this.transporter.sendMail(buildConsultationNotificationMail(consultation, this.config));
+      return true;
+    } catch (error) {
+      // Never log the raw error object — nodemailer/SMTP failures can embed
+      // connection strings or auth details in `.message`/`.response`.
+      this.logger.error(
+        {
+          code: 'CONSULTATION_MAIL_SEND_FAILED',
+          consultationId: consultation.id,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        },
+        'Failed to send consultation notification email; consultation data was already saved',
       );
       return false;
     }
