@@ -135,6 +135,23 @@ describe('POST /api/v2/admin/faq', () => {
     expect(res.body).toEqual({ message: '新增成功', data: row });
   });
 
+  it('accepts a numeric string for no (regression: admin frontend sends "20", not 20, via a plain v-model text input — same bug as contact-class)', async () => {
+    const row = faqRow({ id: 5, name: '新問題', info: '新解答', no: 20 });
+    const { pool, queryFn } = mockFaqCreatePool(row);
+    const { app } = buildTestApp({ pool });
+
+    const res = await request(app)
+      .post('/api/v2/admin/faq')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ name: '新問題', info: '新解答', no: '20' });
+
+    expect(res.status).toBe(201);
+    const insertCall = (queryFn.mock.calls as [string, unknown[]?][]).find(([sql]) =>
+      sql.startsWith('INSERT INTO faq'),
+    );
+    expect(insertCall?.[1]).toEqual(['新問題', '新解答', 20]);
+  });
+
   it('never includes del in the INSERT — lets the DB DEFAULT apply', async () => {
     const row = faqRow({ id: 5 });
     const { pool, queryFn } = mockFaqCreatePool(row);
@@ -238,6 +255,24 @@ describe('PUT /api/v2/admin/faq/{id}', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ message: '更新成功', data: updated });
+  });
+
+  it('accepts a numeric string for no on update (regression: same bug as contact-class PUT — reported 400 "no 為必填欄位")', async () => {
+    const existing = faqRow({ id: 1, no: 10 });
+    const updated = faqRow({ id: 1, name: '新問題', info: '新解答', no: 99 });
+    const { pool, queryFn } = mockFaqUpdatePool({ existsForUpdate: existing, finalRow: updated });
+    const { app } = buildTestApp({ pool });
+
+    const res = await request(app)
+      .put('/api/v2/admin/faq/1')
+      .set('Authorization', `Bearer ${adminUserToken()}`)
+      .send({ name: '新問題', info: '新解答', no: '99' });
+
+    expect(res.status).toBe(200);
+    const updateCall = (queryFn.mock.calls as [string, unknown[]?][]).find(([sql]) =>
+      sql.startsWith('UPDATE faq'),
+    );
+    expect(updateCall?.[1]).toEqual(['新問題', '新解答', 99, 1]);
   });
 
   it('writes only name/info/no — never id or del', async () => {
