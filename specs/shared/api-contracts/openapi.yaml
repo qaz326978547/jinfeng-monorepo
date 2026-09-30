@@ -376,6 +376,64 @@ components:
       required: [uploadUrl, imageKey, imageUrl]
       x-confirmation-status: NEW_NODE_FEATURE
 
+    Consultation:
+      type: object
+      description: >
+        Admin-facing representation of a "免費諮詢" (free consultation) lead. New Node/Admin
+        feature, no legacy table or contract to mirror — fully separate domain from
+        Contact/ContactClass (which back course/seminar registration): distinct table, distinct
+        endpoints, distinct admin data source. callbackTimes is always an array (JSON column),
+        never a single string.
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        phone: { type: string }
+        companyName: { type: [string, "null"] }
+        taxId: { type: [string, "null"] }
+        lineId: { type: [string, "null"] }
+        callbackTimes:
+          type: array
+          items: { type: string, enum: [anytime, morning, noon, afternoon, evening] }
+          minItems: 1
+          uniqueItems: true
+        message: { type: [string, "null"] }
+        status: { type: string, enum: [pending, contacted, completed] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, name, phone, companyName, taxId, lineId, callbackTimes, message, status, createdAt, updatedAt]
+      x-confirmation-status: NEW_NODE_FEATURE
+
+    ConsultationCreateRequest:
+      type: object
+      description: >
+        Public homepage "聯絡我們／免費諮詢" submission. status is intentionally absent from
+        this schema — a client can never set it; the server always creates new rows as
+        `pending`. callbackTimes must contain at least one value, no duplicates, and if it
+        contains "anytime" it must not contain any other value (enforced server-side, not just
+        via the frontend's auto-uncheck UX).
+      properties:
+        name: { type: string, maxLength: 100 }
+        phone: { type: string, maxLength: 20 }
+        companyName: { type: [string, "null"], maxLength: 200 }
+        taxId: { type: [string, "null"], maxLength: 50 }
+        lineId: { type: [string, "null"], maxLength: 100 }
+        callbackTimes:
+          type: array
+          items: { type: string, enum: [anytime, morning, noon, afternoon, evening] }
+          minItems: 1
+          uniqueItems: true
+        message: { type: [string, "null"], maxLength: 1000 }
+      required: [name, phone, callbackTimes]
+      x-confirmation-status: NEW_NODE_FEATURE
+
+    ConsultationStatusUpdateRequest:
+      type: object
+      description: Admin-only status transition. status is the only mutable field on this resource.
+      properties:
+        status: { type: string, enum: [pending, contacted, completed] }
+      required: [status]
+      x-confirmation-status: NEW_NODE_FEATURE
+
     RegisterRequest:
       type: object
       properties:
@@ -1245,6 +1303,108 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorMessage" }
         "503":
           description: AWS S3 not configured on this environment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/consultations:
+    post:
+      operationId: createConsultation
+      summary: 提交「聯絡我們／免費諮詢」表單（新 Node 功能，無 legacy 對應，與課程報名完全分離）
+      description: >
+        Public, no auth required. Fully separate domain from POST /api/v2/contact (課程報名):
+        distinct table (`consultations`), distinct validation, distinct admin data source. A
+        `status` field sent by the client is silently dropped (unknown-key stripping) — every
+        new row is created with `pending` regardless. Rate-limited server-side (5 requests /
+        10 minutes / IP) as basic anti-spam protection.
+      tags: [Public]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsultationCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "新增成功" }
+                  data: { $ref: "#/components/schemas/Consultation" }
+        "400":
+          description: Validation error (missing/too-long field, empty or invalid callbackTimes, duplicate callbackTimes, or "anytime" combined with another value)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+        "429":
+          description: 請求過於頻繁，請稍後再試
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/consultations:
+    get:
+      operationId: adminListConsultations
+      summary: 管理端：取得所有免費諮詢資料（分頁，最新提交排最前面）
+      description: Ordered by id DESC (newest first). Standard Laravel-style paginated envelope, `?page=` query param.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaginatedResponse" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "403":
+          description: Forbidden (valid token but not an admin)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /api/v2/admin/consultations/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    patch:
+      operationId: adminUpdateConsultationStatus
+      summary: 管理端：更新免費諮詢處理狀態
+      description: status is the only mutable field on this resource — pending / contacted / completed.
+      tags: [Admin]
+      security: [{ bearerAuth: [] }]
+      x-confirmation-status: NEW_NODE_FEATURE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConsultationStatusUpdateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "更新成功" }
+                  data: { $ref: "#/components/schemas/Consultation" }
+        "400":
+          description: Validation error (invalid status value)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationError" }
+        "404":
+          description: 找不到資料
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorMessage" }

@@ -23,6 +23,14 @@
                 </ul>
             </li>
             <li class="mt-4 rounded-3xl text-center">
+                <p class="rounded-t-md bg-admin-primary p-2 text-white">免費諮詢</p>
+                <ul class="rounded-b-md bg-white p-2 text-admin-content">
+                    <li class="my-2">
+                        <nuxt-link class="py-2" to="/admin/consultations"> 諮詢資料 </nuxt-link>
+                    </li>
+                </ul>
+            </li>
+            <li class="mt-4 rounded-3xl text-center">
                 <p class="rounded-t-md bg-admin-primary p-2 text-white">首頁設定</p>
                 <ul class="rounded-b-md bg-white p-2 text-admin-content">
                     <li class="my-2">

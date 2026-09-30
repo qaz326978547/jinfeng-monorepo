@@ -20,7 +20,7 @@
         <div class="hidden lg:flex space-x-6 items-center">
           <nuxt-link
             class="text-sm font-medium text-slate-600 hover:text-blue-900 transition duration-300"
-            to="/#register"
+            to="/labor-law-seminar"
           >
             勞動法務速成講座報名
           </nuxt-link>
@@ -55,7 +55,7 @@
             隱私政策
           </button>
           <nuxt-link
-            to="/#register"
+            to="/#consultation"
             class="bg-amber-500 text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-amber-600 transition duration-300 shadow-md"
           >
             免費諮詢
@@ -85,7 +85,7 @@
             <nuxt-link
               @click="navToggle = false"
               class="block px-3 py-2 rounded-md text-base font-medium text-slate-700 hover:text-blue-900 hover:bg-slate-50"
-              to="/#register"
+              to="/labor-law-seminar"
             >
               勞動法務速成講座報名
             </nuxt-link>
@@ -126,7 +126,7 @@
             <nuxt-link
               @click="navToggle = false"
               class="block px-3 py-2 rounded-md text-base font-medium text-white bg-amber-500 hover:bg-amber-600 text-center"
-              to="/#register"
+              to="/#consultation"
             >
               免費諮詢
             </nuxt-link>
