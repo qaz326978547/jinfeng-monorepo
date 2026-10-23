@@ -42,6 +42,14 @@ const requiredString = (label: string) => z.string({ error: `${label} 為必填�
 const optionalNullableString = (max: number, label: string) =>
   z.string().max(max, `${label} 不可超過 ${max} 個字元`).optional().nullable();
 
+/**
+ * One registration covers at most 10 attendees: the public form's
+ * "報名人數" select offers 1–10 (components/SignUpClassForm.vue), and the
+ * largest real registration so far had 7 (production data, 2023-06 ～
+ * 2026-08). Larger groups register in more than one submission.
+ */
+export const MAX_CONTACT_LIST_ITEMS = 10;
+
 export const contactListItemSchema = z.object({
   name: requiredString('contactList 內每筆聯絡人的 name'),
   email: z
@@ -67,7 +75,23 @@ export const createContactRequestSchema = z.object({
   ticket_address: z.string().optional().nullable(),
   from: z.string().optional().nullable(),
   suggest_name: z.string().optional().nullable(),
-  contactList: z.array(contactListItemSchema, { error: 'contactList 為必填欄位，且必須為陣列' }),
+  contactList: z
+    .array(contactListItemSchema, { error: 'contactList 為必填欄位，且必須為陣列' })
+    .max(
+      MAX_CONTACT_LIST_ITEMS,
+      `contactList 最多 ${MAX_CONTACT_LIST_ITEMS} 位聯絡人，超過請分次報名`,
+    ),
 });
 
 export type CreateContactRequest = z.infer<typeof createContactRequestSchema>;
+
+/**
+ * Optional `Idempotency-Key` request header. The frontend generates one UUID
+ * per distinct form submission and reuses it only when re-sending the SAME
+ * data (double click, timeout retry), so a genuine second registration —
+ * new key — is never blocked. Restricted charset so it can live in an ASCII
+ * column and never needs escaping in logs.
+ */
+export const idempotencyKeySchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{16,64}$/, 'Idempotency-Key 格式不正確（16～64 個英數字、- 或 _）');

@@ -11,10 +11,10 @@
 -- two separate rows — the frontend picks the right one via a CSS <picture> breakpoint
 -- (max-width: 767px), not a separate carousel entry per device.
 --
--- ENGINE=InnoDB (not MyISAM): all legacy tables in 001_create_tables.sql are MyISAM because
--- that's what production already used and this migration set preserves it verbatim, but
--- transaction.ts explicitly notes MyISAM silently ignores transaction boundaries. This table
--- has no legacy constraint, so it uses InnoDB to get real transactional semantics.
+-- ENGINE=InnoDB (not MyISAM): when this was written, the legacy tables in 001_create_tables.sql
+-- were MyISAM to match production, and MyISAM silently ignores transaction boundaries. This
+-- table had no legacy constraint, so it used InnoDB from the start. (Since 2026-10-23 all
+-- tables are InnoDB — see the 001 header.)
 --
 -- created_at/updated_at use DB-level DEFAULT/ON UPDATE CURRENT_TIMESTAMP (unlike faq/contact,
 -- which must set NOW() manually in every query because the legacy columns have no DB default —

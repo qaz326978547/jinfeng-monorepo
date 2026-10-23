@@ -419,9 +419,13 @@
             </div>
             <button
               @click="addSignedUpClass"
-              class="w-full mt-8 bg-blue-900 hover:bg-blue-800 text-white font-bold py-4 rounded-lg shadow-lg transition duration-300 transform hover:-translate-y-1 flex justify-center items-center"
+              :disabled="isSubmitting"
+              class="w-full mt-8 bg-blue-900 hover:bg-blue-800 text-white font-bold py-4 rounded-lg shadow-lg transition duration-300 transform hover:-translate-y-1 flex justify-center items-center disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
             >
-              送出資訊 <Icon name="tabler:arrow-right" class="ml-2" size="20" />
+              <span v-if="isSubmitting">送出中...</span>
+              <template v-else>
+                送出資訊 <Icon name="tabler:arrow-right" class="ml-2" size="20" />
+              </template>
             </button>
             <p class="text-xs text-slate-500 text-center mt-4">
               提交即表示您同意我們的服務條款與隱私政策。
@@ -445,6 +449,7 @@ import type {
 import { usePublicStore } from "@/store/usePublicStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { SignedUpClassInfoApi } from "@/api/signedUpClass";
+import { createIdempotencyKey } from "@/utils/idempotency-key";
 
 const { apiBaseUrl, isLoading } = storeToRefs(usePublicStore());
 const { token } = useAuthStore();
@@ -538,19 +543,43 @@ onMounted(() => {
 
 const router = useRouter();
 
+// 防重複送出：送出期間按鈕停用；同一份內容重送（例如逾時後再按）沿用同一個
+// Idempotency-Key，後端只會建立一筆。內容一改就換新的 key，所以真的要再報名一次不會被擋。
+const isSubmitting = ref(false);
+let pendingKey: { key: string; payload: string } | null = null;
+
 const addSignedUpClass = async () => {
+  if (isSubmitting.value) return;
+
   signedUpClassData.value.class = selectClass.value.join(", ");
   signedUpClassData.value.quest = selectFaq.value.join(", ");
   signedUpClassData.value.num = String(peopleNum.value);
   signedUpClassData.value.contactList = peopleInfo.value;
 
-  const res = await SignedUpClassInfoApi.addContactInfo(signedUpClassData.value);
-  if (res) {
-    isLoading.value = true;
-    setTimeout(() => {
-      isLoading.value = false;
-      router.push({ name: "thanks" });
-    }, 3000); //3秒後跳轉
+  const payload = JSON.stringify(signedUpClassData.value);
+  if (!pendingKey || pendingKey.payload !== payload) {
+    pendingKey = { key: createIdempotencyKey(), payload };
   }
+
+  isSubmitting.value = true;
+  const res = await SignedUpClassInfoApi.addContactInfo(signedUpClassData.value, pendingKey.key);
+  if ("failed" in res) {
+    // 伺服器明確拒絕（4xx，例如 409）→ 下次送出換新 key；
+    // 沒收到回應或 5xx → 保留 key，資料可能已寫入，重送會拿到同一筆報名
+    if (res.status !== undefined && res.status >= 400 && res.status < 500 && res.status !== 429) {
+      pendingKey = null;
+    }
+    isSubmitting.value = false;
+    return;
+  }
+
+  // 201 就是報名成功（notification 只代表管理者通知信，失敗也不影響報名），
+  // 按鈕維持停用直到跳轉，避免再按一次
+  pendingKey = null;
+  isLoading.value = true;
+  setTimeout(() => {
+    isLoading.value = false;
+    router.push({ name: "thanks" });
+  }, 3000); //3秒後跳轉
 };
 </script>

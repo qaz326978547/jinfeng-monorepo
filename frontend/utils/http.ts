@@ -45,6 +45,7 @@ export async function clientFetch<T = any>(method: AxiosRequestConfig['method'],
     return response.data;
 }
 
+// payload: GET → [params]；其他 method → [data, params, extraHeaders]
 export async function $http<T = any>(method: Method, url: string, ...payload: any[]): Promise<T> {
     const requestData: AxiosRequestConfig = { url, method };
 
@@ -53,6 +54,9 @@ export async function $http<T = any>(method: Method, url: string, ...payload: an
     } else {
         requestData.data = payload[0];
         requestData.params = payload[1];
+        if (payload[2]) {
+            requestData.headers = payload[2];
+        }
     }
 
     try {

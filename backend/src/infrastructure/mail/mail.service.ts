@@ -12,10 +12,13 @@ import type { MailConfig } from './mail.config';
  * NEVER throws out of this class. Registration data is already committed by
  * the time this runs (contact.service.ts calls this after the DB
  * transaction succeeds) — losing a notification email is preferable to
- * losing, or appearing to reject, a completed registration. Callers that
- * want failure visibility read the boolean return value; ContactService
- * itself only uses it for a single log line.
+ * losing, or appearing to reject, a completed registration. The returned
+ * status is passed through to the API response (`notification`) so the
+ * client can tell "saved, staff email failed" apart from a real error and
+ * never re-submits a registration that was already saved.
  */
+export type NotificationStatus = 'sent' | 'failed' | 'skipped';
+
 export class ContactMailService {
   constructor(
     private readonly transporter: Transporter | null,
@@ -23,19 +26,19 @@ export class ContactMailService {
     private readonly logger: Logger,
   ) {}
 
-  /** Returns true if the email was sent, false if skipped or failed (never throws). */
-  async sendContactNotification(contact: ContactRow): Promise<boolean> {
+  /** "skipped" when mail is not configured; never throws. */
+  async sendContactNotification(contact: ContactRow): Promise<NotificationStatus> {
     if (!this.transporter || !this.config.recipientEmail) {
       this.logger.warn(
         { code: 'CONTACT_MAIL_NOT_CONFIGURED', contactId: contact.id },
         'MAIL_HOST or RECIPIENT_EMAIL not set; skipping contact notification email',
       );
-      return false;
+      return 'skipped';
     }
 
     try {
       await this.transporter.sendMail(buildContactNotificationMail(contact, this.config));
-      return true;
+      return 'sent';
     } catch (error) {
       // Never log the raw error object — nodemailer/SMTP failures can embed
       // connection strings or auth details in `.message`/`.response`.
@@ -49,7 +52,7 @@ export class ContactMailService {
         },
         'Failed to send contact notification email; registration data was already saved',
       );
-      return false;
+      return 'failed';
     }
   }
 }

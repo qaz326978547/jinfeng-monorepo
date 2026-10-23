@@ -36,6 +36,33 @@ export interface ContactRow extends RowDataPacket {
   updated_at: string | null;
 }
 
+interface IdempotencyKeyRow extends RowDataPacket {
+  request_hash: string;
+  contact_id: number | null;
+}
+
+/** An `Idempotency-Key` header value plus the SHA-256 of the validated body it was sent with. */
+export interface IdempotencyClaim {
+  key: string;
+  requestHash: string;
+}
+
+export type CreateContactResult =
+  | {
+      kind: 'created';
+      contact: ContactRow;
+      /** false when the key table is missing (migration 008 not applied) — saved without dedup. */
+      deduplicated: boolean;
+    }
+  | { kind: 'replayed'; contact: ContactRow }
+  | { kind: 'conflict'; reason: 'different_request' | 'original_missing' };
+
+class DuplicateIdempotencyKeyError extends Error {}
+
+function isMysqlError(error: unknown, code: string): error is Error & { sqlMessage?: string } {
+  return error instanceof Error && (error as Error & { code?: string }).code === code;
+}
+
 export class ContactRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -53,13 +80,85 @@ export class ContactRepository {
    * Leaving them unset produced NULL rows that sorted to the very last page
    * under `findPage()`'s `ORDER BY created_at DESC` (MySQL treats NULL as
    * the lowest value), making every new submission invisible on admin page 1.
+   *
+   * With an `idempotency` claim, the key is inserted first in the same
+   * transaction (see migration 008): a concurrent request with the same key
+   * waits on that primary-key row lock, then hits ER_DUP_ENTRY once this
+   * transaction commits and is answered from the stored row instead of
+   * creating a second registration.
    */
-  async createWithContactList(input: CreateContactRequest): Promise<ContactRow> {
-    return withTransaction(this.pool, async (connection) => {
-      const contactId = await this.insertContact(connection, input);
-      await this.insertContactList(connection, contactId, input.contactList);
-      return this.findByIdOrThrow(connection, contactId);
-    });
+  async createWithContactList(
+    input: CreateContactRequest,
+    idempotency?: IdempotencyClaim,
+  ): Promise<CreateContactResult> {
+    try {
+      return await withTransaction(this.pool, async (connection) => {
+        const claimed = idempotency
+          ? await this.claimIdempotencyKey(connection, idempotency)
+          : false;
+        const contactId = await this.insertContact(connection, input);
+        await this.insertContactList(connection, contactId, input.contactList);
+        if (idempotency && claimed) {
+          await connection.query(
+            'UPDATE contact_idempotency_keys SET contact_id = ? WHERE idempotency_key = ?',
+            [contactId, idempotency.key],
+          );
+        }
+        const contact = await this.findByIdOrThrow(connection, contactId);
+        return { kind: 'created', contact, deduplicated: idempotency === undefined || claimed };
+      });
+    } catch (error) {
+      if (idempotency && error instanceof DuplicateIdempotencyKeyError) {
+        return this.resolveExistingKey(idempotency);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * true = key row inserted (this request owns it); false = the key table
+   * does not exist (legacy database without migration 008) — the
+   * registration is still saved, just without duplicate protection. A failed
+   * statement does not abort a MySQL transaction, so carrying on is safe.
+   */
+  private async claimIdempotencyKey(
+    connection: PoolConnection,
+    claim: IdempotencyClaim,
+  ): Promise<boolean> {
+    try {
+      await connection.query(
+        'INSERT INTO contact_idempotency_keys (idempotency_key, request_hash) VALUES (?, ?)',
+        [claim.key, claim.requestHash],
+      );
+      return true;
+    } catch (error) {
+      if (
+        isMysqlError(error, 'ER_DUP_ENTRY') &&
+        error.sqlMessage?.includes('contact_idempotency_keys.PRIMARY')
+      ) {
+        throw new DuplicateIdempotencyKeyError();
+      }
+      if (isMysqlError(error, 'ER_NO_SUCH_TABLE')) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private async resolveExistingKey(claim: IdempotencyClaim): Promise<CreateContactResult> {
+    const [rows] = await this.pool.query<IdempotencyKeyRow[]>(
+      'SELECT request_hash, contact_id FROM contact_idempotency_keys WHERE idempotency_key = ?',
+      [claim.key],
+    );
+    const existing = rows[0];
+    if (!existing || existing.request_hash !== claim.requestHash) {
+      return { kind: 'conflict', reason: 'different_request' };
+    }
+    const contact = existing.contact_id === null ? null : await this.findById(existing.contact_id);
+    if (!contact) {
+      return { kind: 'conflict', reason: 'original_missing' };
+    }
+    return { kind: 'replayed', contact };
   }
 
   private async insertContact(

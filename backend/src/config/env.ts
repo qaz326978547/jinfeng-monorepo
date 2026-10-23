@@ -1,6 +1,9 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
-const envSchema = z.object({
+const PEM_CERTIFICATE_HEADER = '-----BEGIN CERTIFICATE-----';
+
+const baseEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(8080),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
@@ -11,6 +14,22 @@ const envSchema = z.object({
   DB_PASSWORD: z.string().default(''),
   DB_DATABASE: z.string().min(1),
   DB_CONNECTION_LIMIT: z.coerce.number().int().positive().default(10),
+  // TLS to MySQL. Off by default so local Docker MySQL and the legacy Zeabur
+  // database keep working; DigitalOcean Managed MySQL requires it. When on,
+  // the server certificate is ALWAYS verified against DB_SSL_CA and its
+  // hostname against DB_HOST — there is deliberately no switch to skip
+  // either check (see config/database.ts).
+  DB_SSL: z
+    .enum(['true', 'false'], { error: 'DB_SSL must be "true" or "false"' })
+    .default('false')
+    .transform((value) => value === 'true'),
+  // PEM text of the CA that signed the server certificate (DigitalOcean:
+  // the cluster's "CA certificate" download). Literal `\n` sequences are
+  // turned into newlines so the PEM can be stored as a single-line env var.
+  DB_SSL_CA: z
+    .string()
+    .default('')
+    .transform((value) => value.replace(/\\n/g, '\n').trim()),
 
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   /**
@@ -66,6 +85,29 @@ const envSchema = z.object({
         'AWS_S3_PUBLIC_BASE_URL must be an http(s) URL with no trailing slash (e.g. https://cdn.example.com)',
     },
   ),
+});
+
+const envSchema = baseEnvSchema.superRefine((env, ctx) => {
+  if (!env.DB_SSL) {
+    return;
+  }
+  if (!env.DB_SSL_CA.includes(PEM_CERTIFICATE_HEADER)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['DB_SSL_CA'],
+      message: `DB_SSL_CA must contain a PEM CA certificate (${PEM_CERTIFICATE_HEADER}) when DB_SSL=true`,
+    });
+  }
+  // mysql2 only sends SNI / checks the certificate hostname when the host is
+  // a name; with an IP the identity check would silently not happen.
+  if (isIP(env.DB_HOST) !== 0) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['DB_HOST'],
+      message:
+        'DB_HOST must be the hostname on the server certificate (not an IP address) when DB_SSL=true',
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

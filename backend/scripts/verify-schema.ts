@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import { buildSslOptions } from '../src/config/database';
 import { loadEnv } from '../src/config/env';
 import { isSchemaDiffClean, verifySchema } from '../src/infrastructure/database/schema-verifier';
 import snapshot from '../src/infrastructure/database/schema/database-schema.json';
@@ -15,6 +16,7 @@ async function main(): Promise<void> {
     user: env.DB_USER,
     password: env.DB_PASSWORD,
     database: env.DB_DATABASE,
+    ...buildSslOptions(env),
   });
 
   try {

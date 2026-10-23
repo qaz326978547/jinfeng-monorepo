@@ -1,6 +1,7 @@
 import { $http, asyncDo, isResponseOK } from '@/utils/http';
 import type {
     AddContactInfo,
+    AddContactResponse,
     ContactData,
     ContactClassData,
     ContactClass,
@@ -38,14 +39,31 @@ export namespace SignedUpClassInfoApi {
 
     /**
      * 新增報名課程公司資訊
+     *
+     * idempotencyKey：同一筆報名（內容相同）重送時沿用同一個值，後端會回傳第一次建立的報名，
+     * 不會重複寫入或重寄通知信。只要回 201 就代表報名已成功寫入，
+     * 即使 notification 是 "failed"（只影響寄給管理者的通知信）。
+     * 失敗時回傳 { failed: true, status }，status 為 undefined 代表沒收到回應（網路／逾時）。
      */
-    export async function addContactInfo(data: AddContactInfo | null) {
-        const [err, result] = await asyncDo($http<any>('post', 'contact', data));
+    export async function addContactInfo(
+        data: AddContactInfo | null,
+        idempotencyKey?: string
+    ): Promise<AddContactResponse | { failed: true; status?: number }> {
+        const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined;
+        const [err, result] = await asyncDo(
+            $http<AddContactResponse>('post', 'contact', data, undefined, headers)
+        );
         if (!isResponseOK(err, result)) {
-            alert(err.data.message);
-            return false;
+            // isResponseOK 已針對 401/403/404/500/503 跳過提示，這裡只補其餘狀態的訊息
+            if (![401, 403, 404, 500, 503].includes(err?.status)) {
+                alert(
+                    err?.data?.message ??
+                        '網路連線異常，請確認網路後再按一次送出（同一筆報名重送不會重複建立）'
+                );
+            }
+            return { failed: true, status: err?.status };
         }
-        return result;
+        return result as AddContactResponse;
     }
 
     /**

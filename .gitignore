@@ -5,3 +5,11 @@ node_modules/
 .env.*
 !.env.example
 coverage/
+
+# 正式資料庫備份與衍生檔（含個資，不可 commit）
+docs/change/*.sql
+!docs/change/convert-myisam-to-innodb.sql
+!docs/change/reconcile-counts.sql
+docs/change/_manifest.json
+# 舊 Laravel／Redis 的實際環境變數值（含密碼）
+docs/環境變數.md

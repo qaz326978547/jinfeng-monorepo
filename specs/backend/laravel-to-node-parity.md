@@ -104,7 +104,7 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 
 **JWT_EXPIRES_IN 產品決策（呼應 §10.5/§10.9 的分析）**：從單純「限制上限」進一步收斂為**固定 allowlist**(`1d`/`7d`/`14d`/`30d`)，而不是「字串 + 範圍檢查」——因為 `z.string()` 搭配範圍檢查仍然要解析 `ms` 字串格式，允許意外的格式變體；改用列舉直接把「允許的值」收斂到 4 個明確選項，`31d`/`60d`/`90d`/`365d`/`10y`/`1h`~`12h`/空字串/任意其他 `jsonwebtoken`/`ms` 可解析字串全部在**啟動階段**被拒絕（`loadEnv()` 在 `server.ts::main()` 最開頭被無保護呼叫，驗證失敗直接讓 process crash，不會等到第一次 login 才 500）。預設值與上限皆定為 `30d`——產品需求是「只要 JWT 未過期且使用者沒有主動登出，就應該長時間維持登入狀態（涵蓋關閉/重開瀏覽器、重新整理）」，`30d` 是兩個目標的折衷：夠長，讓 frontend 未來把 token 存進 localStorage 後不會頻繁要求重新登入；同時仍是一個明確的上限，不是永久 JWT。
 
-**Duplicate email 辨識方式**：`users` 表除了自增 PK 外只有一個唯一鍵 `users_email_unique`(email)（`backend/migrations/001_create_tables.sql` 第 45 行）。`isDuplicateEmailError()` 同時檢查 `error.code === 'ER_DUP_ENTRY'` **且** `error.sqlMessage` 包含 `users_email_unique` 這個 constraint 自己的名稱——這是比對我們自己定義的、穩定的索引識別碼，不是對任意錯誤訊息字串做脆弱的猜測比對；即使未來這張表新增其他唯一鍵，其他鍵觸發的 `ER_DUP_ENTRY` 也不會被誤判成 email 重複（已有專門測試覆蓋這個情境）。
+**Duplicate email 辨識方式**：`users` 表除了自增 PK 外只有一個唯一鍵 `users_email_unique`(email)（`backend/migrations/001_create_tables.sql` 第 48 行）。`isDuplicateEmailError()` 同時檢查 `error.code === 'ER_DUP_ENTRY'` **且** `error.sqlMessage` 包含 `users_email_unique` 這個 constraint 自己的名稱——這是比對我們自己定義的、穩定的索引識別碼，不是對任意錯誤訊息字串做脆弱的猜測比對；即使未來這張表新增其他唯一鍵，其他鍵觸發的 `ER_DUP_ENTRY` 也不會被誤判成 email 重複（已有專門測試覆蓋這個情境）。
 
 **Logout 是 stateless 設計，不是遺漏**：`authenticate` middleware 已經確保跑到 `logout` handler 時一定有合法、未過期的 token；handler 本身不做任何 DB 寫入、不建 blacklist、不用 Redis、不改 DB schema。**同一顆尚未過期的 JWT 在呼叫 logout 之後仍然對 `authenticate` 有效**——這不是 bug，是 §10.9 選定方案 A 的明確 security trade-off，已有專門測試(`auth-logout.test.ts`)驗證並記錄這個行為。真正讓單一瀏覽器完成登出，要靠未來的 frontend 任務清除 `localStorage` 的 token。
 

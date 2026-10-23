@@ -110,9 +110,15 @@
 
 ## 4. `POST /api/v2/contact`（報名表單送出）
 
+> **2026-10-24 Node 版變更（非 Laravel legacy parity）**：新增限流、`contactList` 人數上限、
+> `Idempotency-Key` 防重複送出，以及回應中的 `notification`／`replayed` 欄位。只增加欄位與錯誤碼，
+> 原有欄位與 201 `{message, data}` 形狀不變。
+
 - **需登入**：否 ／ **權限需求**：無
 - **Path/Query parameters**：無
-- **Request headers**：`Content-Type: application/json`
+- **Request headers**：`Content-Type: application/json`；選填 `Idempotency-Key`（16～64 個英數字、`-`、`_`，
+  建議 UUID）。前端每一筆不同內容的報名產生一個新值，只有「同一份內容重送」（連點、逾時後再按）才沿用。
+- **限流**：同一個 IP 每 10 分鐘最多 10 次（記憶體計數，每個 backend instance 各自計算），超過回 `429`。
 - **Request body**：
 
   | 欄位 | 必填 | 型別 | Validation | 預設值 |
@@ -129,7 +135,7 @@
   | `ticket_address` | 否 | string | - | null |
   | `from` | 否 | string | - | null |
   | `suggest_name` | 否 | string | - | null |
-  | `contactList` | 是 | array | required, array | - |
+  | `contactList` | 是 | array | required, array，**最多 10 筆**（前端報名人數選單 1～10；歷史最多 7） | - |
   | `contactList[].name` | 是 | string | required | - |
   | `contactList[].email` | 是 | string (email) | required, email 格式 | - |
   | `contactList[].job` | 否 | string | - | null |
@@ -138,15 +144,24 @@
 - **成功 HTTP status**：`201`
 - **成功 Response JSON**：
   ```json
-  { "message": "新增成功", "data": { "id": 1, "class": "...", "quest": "...", "company": "...", "tel": "...", "num": "...", "last5": null, "ticket": null, "ticket_name": null, "ticket_no": null, "ticket_address": null, "from": null, "suggest_name": null, "del": 0, "no": 0, "created_at": "...", "updated_at": "..." } }
+  { "message": "新增成功", "data": { "id": 1, "class": "...", "quest": "...", "company": "...", "tel": "...", "num": "...", "last5": null, "ticket": null, "ticket_name": null, "ticket_no": null, "ticket_address": null, "from": null, "suggest_name": null, "del": 0, "no": 0, "created_at": "...", "updated_at": "..." }, "notification": "sent", "replayed": false }
   ```
   注意：`data` 只有 `contact` 主表欄位，不含剛建立的 `contact_list` 明細。
-- **錯誤 HTTP status**：`400`（驗證失敗）
-- **錯誤 Response JSON**：`{"status": "error", "message": "<第一條驗證錯誤訊息，繁體中文>"}`
+  - **只要是 201，報名就已寫入。** `notification` 只描述寄給管理者的通知信：`sent`、`failed`（SMTP 錯誤或逾時；
+    連線 10 秒、伺服器回應 10 秒、傳輸中斷 20 秒）、`skipped`（未設定寄信，或這次是重送）。前端不可把
+    `failed` 當成報名失敗。
+  - **重送**：同一個 `Idempotency-Key` 加上相同內容，回傳第一次建立的那筆（`replayed: true`、header
+    `Idempotent-Replayed: true`），不會新增資料也不會再寄信；同時送出的多個請求也只會建立一筆。
+- **錯誤 HTTP status**：
+  - `400`（驗證失敗、`contactList` 超過 10 筆、`Idempotency-Key` 格式錯誤）：`{"status": "error", "message": "<第一條驗證錯誤訊息，繁體中文>"}`
+  - `409` `IDEMPOTENCY_KEY_CONFLICT`：同一個 key 用在不同內容，或原報名已被刪除。不寫入任何資料。
+  - `429`：`{"message": "請求過於頻繁，請稍後再試"}`
+  - `503` `DB_POOL_SATURATED`：10 秒內拿不到資料庫連線。不會寫入資料，可以用同一個 key 重送。
 - **分頁格式**：不適用
 - **排序規則**：不適用
 - **過濾規則**：不適用
-- **使用資料表**：`contact`（寫入 1 筆）、`contact_list`（寫入 N 筆，N = `contactList` 陣列長度）
+- **使用資料表**：`contact`（寫入 1 筆）、`contact_list`（寫入 N 筆，N = `contactList` 陣列長度）、
+  `contact_idempotency_keys`（有帶 `Idempotency-Key` 時寫入 1 筆；Node 版新增，migration 008）
 - **讀取的欄位**：無（純新增）
 - **寫入的欄位**：`contact.*`（除 `id`/`del`/`no`/`created_at`/`updated_at` 外的全部欄位）；
   `contact_list.name/email/job/cel/cid`（`cid` = 剛建立的 `contact.id`）

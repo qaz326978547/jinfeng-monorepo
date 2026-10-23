@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import { isAppError } from '../shared/errors/app-error';
 import { LegacyValidationError } from '../shared/errors/legacy-validation-error';
 import { FormRequestValidationError } from '../shared/errors/form-request-validation-error';
+import { isPoolSaturationError } from '../infrastructure/database/client';
 
 interface ErrorResponseBody {
   message: string;
@@ -67,6 +68,19 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
       details: err.issues,
     };
     res.status(400).json(body);
+    return;
+  }
+
+  // Pool saturated (acquire timeout / queue limit): the request never reached
+  // MySQL, so this is "try again shortly", not a server bug.
+  if (isPoolSaturationError(err)) {
+    req.log?.warn({ err }, 'MySQL pool saturated');
+    const body: ErrorResponseBody = {
+      message: '系統忙碌中，請稍後再試',
+      code: 'DB_POOL_SATURATED',
+      requestId,
+    };
+    res.status(503).json(body);
     return;
   }
 

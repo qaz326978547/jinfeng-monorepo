@@ -1,5 +1,5 @@
 import { createApp } from './app';
-import { buildPoolOptions } from './config/database';
+import { buildPoolOptions, DB_POOL_SETTINGS } from './config/database';
 import { getEnv } from './config/env';
 import { createLogger } from './config/logger';
 import { closePool, createPool } from './infrastructure/database/client';
@@ -8,7 +8,7 @@ import { registerGracefulShutdown } from './shared/utils/graceful-shutdown';
 function main(): void {
   const env = getEnv();
   const logger = createLogger(env);
-  const pool = createPool(buildPoolOptions(env));
+  const pool = createPool(buildPoolOptions(env), DB_POOL_SETTINGS.acquireTimeoutMs);
   const app = createApp({ env, pool, logger });
 
   const server = app.listen(env.PORT, '0.0.0.0', () => {

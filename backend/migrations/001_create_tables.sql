@@ -1,35 +1,39 @@
--- migration-spec/sql/001-create-tables.sql
+-- 001_create_tables.sql
 --
--- Verbatim table structure of the Zeabur production MySQL database ("zeabur" schema),
--- captured via READ-ONLY `SHOW CREATE TABLE` on 2026-07-21. Column names, types, lengths,
--- defaults, character sets, and storage engines are preserved EXACTLY as they exist in
--- production — do NOT rename, retype, re-normalize, or drop columns that look unused.
+-- Creates the 7 legacy tables the Node backend actually reads/writes. Column names, types,
+-- lengths, defaults, character sets, and indexes are copied verbatim from the Zeabur production
+-- MySQL database ("zeabur" schema, READ-ONLY `SHOW CREATE TABLE`, 2026-07-21) — do NOT rename,
+-- retype, re-normalize, or drop columns that look unused: several repositories use `SELECT *`
+-- and return the whole row through the API.
 --
--- WHY THIS FILE CREATES 24 TABLES, NOT 25:
---   The production database has 25 tables total (see database-schema.json /
---   database-schema.md, FRAMEWORK_METADATA_TABLE category). This file intentionally
---   creates only 24 — it EXCLUDES Laravel's own `migrations` bookkeeping table (the table
---   Laravel's migration runner uses to record which of ITS OWN migration files have run).
---   That table is framework-internal to Laravel and irrelevant to the new Node.js project,
---   which tracks its own applied-migrations state in a separate table it creates itself
---   (`node_schema_migrations`, see node-migrations/migrate.ts). This is intentional, not an
---   accidental omission — every other table (including all 5 Passport oauth_* tables, which
---   the new project will not use functionally but keeps for schema fidelity per the
---   "don't modify the existing database structure" requirement) IS included below.
+-- 2026-10-23 — DigitalOcean migration (docs/change/NewData報告.md):
+--   * Every table is now ENGINE=InnoDB. DigitalOcean Managed MySQL rejects MyISAM, and
+--     production's six former MyISAM tables (contact, contact_class, contact_quest,
+--     contact_list, faq, seo) were converted when the data was moved there. Transactions in
+--     contact.repository.ts / contact-class.repository.ts are therefore real now.
+--   * The 17 tables only the old Laravel app used are no longer created here: admin, browse,
+--     browse_record, contact_img, faq_class, jobs, oauth_access_tokens, oauth_auth_codes,
+--     oauth_clients, oauth_personal_access_clients, oauth_refresh_tokens, page, page_files,
+--     page_pics, password_resets, seo_class, simple_setting. (Laravel's own `migrations` table
+--     was never created by this file.) Their last data is archived in the pre-migration Zeabur
+--     backup, outside the repo.
+--   * The other tables in the reference snapshot come from elsewhere: `carousel` (006),
+--     `consultations` (007), `contact_idempotency_keys` (008), `node_schema_migrations`
+--     (scripts/migrate.ts). The full expected
+--     schema is src/infrastructure/database/schema/database-schema.json (`npm run db:verify`).
 --
--- IMPORTANT — storage engines are intentionally mixed (MyISAM + InnoDB), matching production:
---   MyISAM tables do NOT support real foreign keys or transactions. Do not convert them to
---   InnoDB "for consistency" — that would change cascade-delete / transaction behavior versus
---   the live system (see known-legacy-issues.md).
+-- Editing this file does NOT touch databases that already applied it: scripts/migrate.ts
+-- tracks applied files by filename in `node_schema_migrations` and never re-runs or diffs them.
+-- A database created from the previous version keeps its legacy tables and MyISAM engines —
+-- `db:verify` reports the engine difference; recreate the database to pick up this version.
 --
 -- `IF NOT EXISTS` is added so this script is safe to run repeatedly against a fresh local/test
--- database. It must NEVER be run against the production database (see node-migrations/README.md
--- for the dry-run / schema-verification workflow instead).
+-- database. Never run migrations against the old Zeabur production database.
 
 SET NAMES utf8mb4;
 
 -- ============================================================
--- Laravel framework tables (installed by php artisan migrate, un-modified)
+-- Admin login (originally Laravel's users table)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS `users` (
@@ -45,88 +49,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   UNIQUE KEY `users_email_unique` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS `password_resets` (
-  `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `token` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  KEY `password_resets_email_index` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `jobs` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `queue` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `payload` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
-  `attempts` tinyint unsigned NOT NULL,
-  `reserved_at` int unsigned DEFAULT NULL,
-  `available_at` int unsigned NOT NULL,
-  `created_at` int unsigned NOT NULL,
-  PRIMARY KEY (`id`),
-  KEY `jobs_queue_index` (`queue`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- ============================================================
--- Laravel Passport tables (OAuth2 personal access tokens)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS `oauth_clients` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `user_id` bigint DEFAULT NULL,
-  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `secret` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `redirect` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `personal_access_client` tinyint(1) NOT NULL,
-  `password_client` tinyint(1) NOT NULL,
-  `revoked` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `oauth_clients_user_id_index` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `oauth_personal_access_clients` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `client_id` int unsigned NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `oauth_personal_access_clients_client_id_index` (`client_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `oauth_auth_codes` (
-  `id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `user_id` bigint NOT NULL,
-  `client_id` int unsigned NOT NULL,
-  `scopes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  `revoked` tinyint(1) NOT NULL,
-  `expires_at` datetime DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `oauth_access_tokens` (
-  `id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `user_id` bigint DEFAULT NULL,
-  `client_id` int unsigned NOT NULL,
-  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `scopes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  `revoked` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `expires_at` datetime DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `oauth_access_tokens_user_id_index` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `oauth_refresh_tokens` (
-  `id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `access_token_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `revoked` tinyint(1) NOT NULL,
-  `expires_at` datetime DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `oauth_refresh_tokens_access_token_id_index` (`access_token_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- Business tables actively used by this Laravel app's API (routes/api.php)
+-- Business tables used by the API
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS `contact` (
@@ -148,7 +72,7 @@ CREATE TABLE IF NOT EXISTS `contact` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `contact_class` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -158,7 +82,7 @@ CREATE TABLE IF NOT EXISTS `contact_class` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `contact_quest` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -168,7 +92,7 @@ CREATE TABLE IF NOT EXISTS `contact_quest` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `contact_list` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -182,7 +106,7 @@ CREATE TABLE IF NOT EXISTS `contact_list` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `contact_list_cid_index` (`cid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `faq` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -211,7 +135,7 @@ CREATE TABLE IF NOT EXISTS `faq` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `upid` (`class_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `seo` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -231,158 +155,4 @@ CREATE TABLE IF NOT EXISTS `seo` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `upid` (`class_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `contact_img` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `imageUrl` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `content` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- Tables present in the production database with NO corresponding Laravel code in this repo (no Model, no Controller, no migration) — included here ONLY for structural parity so a local test database matches production 1:1. See migration-spec/database-schema.md (LEGACY_OR_EXTERNAL_TABLE category).
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS `admin` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `account` varchar(30) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL DEFAULT '',
-  `password` varchar(120) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci DEFAULT NULL,
-  `m_pass_rem` tinyint(1) NOT NULL DEFAULT '0',
-  `m_pass_ans` varchar(30) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL DEFAULT '',
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `m_username` (`account`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `browse` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `name` varchar(60) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `start_num` int NOT NULL,
-  `link` text CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `pic` varchar(255) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `act` tinyint(1) NOT NULL,
-  `no` int NOT NULL,
-  `del` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `browse_record` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `num` int NOT NULL,
-  `date` date NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `faq_class` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `class_id` int NOT NULL,
-  `history` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `e_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `pic` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `pic_alt` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `s_info` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `info` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `discount` float NOT NULL,
-  `act` tinyint(1) NOT NULL,
-  `p_home` tinyint(1) NOT NULL,
-  `no` int NOT NULL DEFAULT '100',
-  `del` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `upid` (`class_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `page` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `path` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `name` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `e_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `sub_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `pic` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `pic_alt` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `file` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `link` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `utube` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `s_info` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `info` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `act` tinyint(1) NOT NULL,
-  `no` int NOT NULL,
-  `del` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `page_files` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `pid` int NOT NULL,
-  `name` varchar(30) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `file` varchar(255) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `info` text CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `act` tinyint(1) NOT NULL DEFAULT '1',
-  `no` int NOT NULL,
-  `del` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `session_id` varchar(200) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `counts` int NOT NULL,
-  PRIMARY KEY (`id`),
-  KEY `upid` (`pid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `page_pics` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `pid` int NOT NULL,
-  `name` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `pic` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `s_pic` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `info` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `no` int NOT NULL,
-  `del` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `session_id` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  PRIMARY KEY (`id`),
-  KEY `upid` (`pid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `seo_class` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `class_id` int NOT NULL,
-  `history` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `relate_id` int NOT NULL,
-  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `keyword` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `pic` varchar(180) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `del` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `upid` (`class_id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `simple_setting` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `name` varchar(255) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `line_notify_token` varchar(255) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `del` tinyint(1) NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-

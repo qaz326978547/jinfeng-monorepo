@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { buildTestApp, createMockPool, createMockMailTransport } from '../helpers/build-test-app';
+import {
+  MAX_CONTACT_LIST_ITEMS,
+  createContactRequestSchema,
+} from '../../src/modules/contact/contact.schemas';
+import { hashContactRequest } from '../../src/modules/contact/contact.service';
 
 type QueryCall = [string, unknown[]?];
 
@@ -149,7 +154,9 @@ describe('POST /api/v2/contact', () => {
       const connection = buildHappyConnection();
       const { app } = buildTestApp({ pool: poolWithConnection(connection) });
 
-      const res = await request(app).post('/api/v2/contact').send(validPayload({ ticket: '' }));
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .send(validPayload({ ticket: '' }));
 
       expect(res.status).toBe(201);
       const contactInsert = findQueryCall(connection.query, 'INSERT INTO contact ');
@@ -219,7 +226,9 @@ describe('POST /api/v2/contact', () => {
     it('rejects tel longer than 10 characters', async () => {
       const { app } = buildTestApp();
 
-      const res = await request(app).post('/api/v2/contact').send(validPayload({ tel: '12345678901' }));
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .send(validPayload({ tel: '12345678901' }));
 
       expect(res.status).toBe(400);
       expect(res.body.message).toContain('tel');
@@ -278,6 +287,7 @@ describe('POST /api/v2/contact', () => {
       const res = await request(app).post('/api/v2/contact').send(validPayload());
 
       expect(res.status).toBe(201);
+      expect(res.body.notification).toBe('sent');
       expect(mailTransport.sendMail).toHaveBeenCalledTimes(1);
       const sendMailMock = mailTransport.sendMail as ReturnType<typeof vi.fn>;
       const sentMessage = sendMailMock.mock.calls[0]?.[0];
@@ -299,6 +309,8 @@ describe('POST /api/v2/contact', () => {
       const res = await request(app).post('/api/v2/contact').send(validPayload());
 
       expect(res.status).toBe(201);
+      expect(res.body.message).toBe('新增成功');
+      expect(res.body.notification).toBe('failed');
       expect(connection.commit).toHaveBeenCalledTimes(1);
       expect(mailTransport.sendMail).toHaveBeenCalledTimes(1);
     });
@@ -310,6 +322,7 @@ describe('POST /api/v2/contact', () => {
       const res = await request(app).post('/api/v2/contact').send(validPayload());
 
       expect(res.status).toBe(201);
+      expect(res.body.notification).toBe('skipped');
     });
   });
 
@@ -325,6 +338,269 @@ describe('POST /api/v2/contact', () => {
       expect(res.body.message).toBe('新增成功');
       expect(res.body.data).toEqual(row);
       expect(res.body.data.contactList).toBeUndefined();
+      expect(res.body.replayed).toBe(false);
+      expect(res.body.notification).toBe('skipped');
     });
+  });
+
+  describe('contactList limit', () => {
+    function people(count: number) {
+      return Array.from({ length: count }, (_, i) => ({
+        name: `聯絡人${i + 1}`,
+        email: `p${i + 1}@example.com`,
+        cel: '0912345678',
+      }));
+    }
+
+    it(`accepts ${MAX_CONTACT_LIST_ITEMS} attendees (the form's maximum)`, async () => {
+      const connection = buildHappyConnection();
+      const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .send(validPayload({ contactList: people(MAX_CONTACT_LIST_ITEMS) }));
+
+      expect(res.status).toBe(201);
+      expect(queryCallsMatching(connection.query, 'INSERT INTO contact_list')).toHaveLength(
+        MAX_CONTACT_LIST_ITEMS,
+      );
+    });
+
+    it('rejects more attendees with 400 and writes nothing', async () => {
+      const pool = createMockPool({ getConnection: vi.fn() });
+      const { app } = buildTestApp({ pool });
+
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .send(validPayload({ contactList: people(MAX_CONTACT_LIST_ITEMS + 1) }));
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        status: 'error',
+        message: `contactList 最多 ${MAX_CONTACT_LIST_ITEMS} 位聯絡人，超過請分次報名`,
+      });
+      expect(pool.getConnection).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('rate limit (10 / 10 min / IP)', () => {
+    it('returns 429 on the 11th submission from the same IP', async () => {
+      const connection = buildHappyConnection();
+      const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+      for (let i = 0; i < 10; i += 1) {
+        const ok = await request(app).post('/api/v2/contact').send(validPayload());
+        expect(ok.status).toBe(201);
+      }
+      const res = await request(app).post('/api/v2/contact').send(validPayload());
+
+      expect(res.status).toBe(429);
+      expect(res.body.message).toBe('請求過於頻繁，請稍後再試');
+      expect(queryCallsMatching(connection.query, 'INSERT INTO contact ')).toHaveLength(10);
+    });
+  });
+
+  describe('Idempotency-Key (duplicate submission guard)', () => {
+    const KEY = '3f1c2a9e-8b7d-4c6e-9a1b-2d3e4f5a6b7c';
+
+    function duplicateKeyError() {
+      const message = `Duplicate entry '${KEY}' for key 'contact_idempotency_keys.PRIMARY'`;
+      return Object.assign(new Error(message), { code: 'ER_DUP_ENTRY', sqlMessage: message });
+    }
+
+    function expectedHash(payload = validPayload()) {
+      return hashContactRequest(createContactRequestSchema.parse(payload));
+    }
+
+    /** Connection that also accepts the idempotency-key INSERT/UPDATE. */
+    function buildKeyedConnection(
+      claim: 'ok' | 'duplicate' | 'no_table' = 'ok',
+      row = contactRow(),
+    ): MockConnection {
+      const happy = buildHappyConnection(row);
+      const base = happy.query.getMockImplementation() as (sql: string) => unknown;
+      happy.query.mockImplementation((sql: string) => {
+        if (sql.startsWith('INSERT INTO contact_idempotency_keys')) {
+          if (claim === 'duplicate') return Promise.reject(duplicateKeyError());
+          if (claim === 'no_table') {
+            return Promise.reject(
+              Object.assign(new Error("Table 'jinfeng.contact_idempotency_keys' doesn't exist"), {
+                code: 'ER_NO_SUCH_TABLE',
+              }),
+            );
+          }
+          return Promise.resolve([{ affectedRows: 1 }, []]);
+        }
+        if (sql.startsWith('UPDATE contact_idempotency_keys')) {
+          return Promise.resolve([{ affectedRows: 1 }, []]);
+        }
+        return base(sql);
+      });
+      return happy;
+    }
+
+    /** pool.query answers the post-duplicate lookups (outside the transaction). */
+    function poolForDuplicate(
+      connection: MockConnection,
+      stored: { request_hash: string; contact_id: number | null },
+      original: ReturnType<typeof contactRow> | null,
+    ) {
+      return createMockPool({
+        getConnection: vi.fn().mockResolvedValue(connection),
+        query: vi.fn().mockImplementation((sql: string) => {
+          if (sql.startsWith('SELECT request_hash, contact_id FROM contact_idempotency_keys')) {
+            return Promise.resolve([[stored], []]);
+          }
+          if (sql.startsWith('SELECT * FROM contact WHERE id')) {
+            return Promise.resolve([original ? [original] : [], []]);
+          }
+          throw new Error(`unexpected pool query in test: ${sql}`);
+        }),
+      });
+    }
+
+    it('claims the key first in the transaction and links it to the new contact', async () => {
+      const connection = buildKeyedConnection('ok', contactRow({ id: 77 }));
+      const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .set('Idempotency-Key', KEY)
+        .send(validPayload());
+
+      expect(res.status).toBe(201);
+      expect(res.body.replayed).toBe(false);
+      expect(res.headers['idempotent-replayed']).toBeUndefined();
+      const sqls = (connection.query.mock.calls as QueryCall[]).map(([sql]) => sql);
+      expect(sqls[0]).toMatch(/^INSERT INTO contact_idempotency_keys/);
+      expect(connection.query.mock.calls[0]?.[1]).toEqual([KEY, expectedHash()]);
+      const update = findQueryCall(connection.query, 'UPDATE contact_idempotency_keys');
+      expect(update[1]).toEqual([77, KEY]);
+      expect(connection.commit).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers a duplicate (same key, same data) with the original registration — no second row, no second email', async () => {
+      const original = contactRow({ id: 55 });
+      const connection = buildKeyedConnection('duplicate');
+      const mailTransport = createMockMailTransport();
+      const { app } = buildTestApp({
+        pool: poolForDuplicate(
+          connection,
+          { request_hash: expectedHash(), contact_id: 55 },
+          original,
+        ),
+        env: { MAIL_HOST: 'smtp.test.local', RECIPIENT_EMAIL: 'ops@example.com' },
+        mailTransport,
+      });
+
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .set('Idempotency-Key', KEY)
+        .send(validPayload());
+
+      expect(res.status).toBe(201);
+      expect(res.body).toEqual({
+        message: '新增成功',
+        data: original,
+        notification: 'skipped',
+        replayed: true,
+      });
+      expect(res.headers['idempotent-replayed']).toBe('true');
+      expect(queryCallsMatching(connection.query, 'INSERT INTO contact ')).toHaveLength(0);
+      expect(connection.rollback).toHaveBeenCalledTimes(1);
+      expect(mailTransport.sendMail).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when the same key arrives with different data', async () => {
+      const connection = buildKeyedConnection('duplicate');
+      const { app } = buildTestApp({
+        pool: poolForDuplicate(
+          connection,
+          { request_hash: expectedHash(validPayload({ company: '另一家公司' })), contact_id: 55 },
+          contactRow({ id: 55 }),
+        ),
+      });
+
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .set('Idempotency-Key', KEY)
+        .send(validPayload());
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+      expect(queryCallsMatching(connection.query, 'INSERT INTO contact ')).toHaveLength(0);
+    });
+
+    it('returns 409 when the original registration was deleted since', async () => {
+      const connection = buildKeyedConnection('duplicate');
+      const { app } = buildTestApp({
+        pool: poolForDuplicate(connection, { request_hash: expectedHash(), contact_id: 55 }, null),
+      });
+
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .set('Idempotency-Key', KEY)
+        .send(validPayload());
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('IDEMPOTENCY_KEY_CONFLICT');
+    });
+
+    it('still saves the registration when the key table does not exist (migration 008 not applied)', async () => {
+      const connection = buildKeyedConnection('no_table');
+      const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .set('Idempotency-Key', KEY)
+        .send(validPayload());
+
+      expect(res.status).toBe(201);
+      expect(res.body.replayed).toBe(false);
+      expect(queryCallsMatching(connection.query, 'INSERT INTO contact ')).toHaveLength(1);
+      expect(queryCallsMatching(connection.query, 'UPDATE contact_idempotency_keys')).toHaveLength(
+        0,
+      );
+      expect(connection.commit).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a malformed key with the FormRequest 400 shape and writes nothing', async () => {
+      const pool = createMockPool({ getConnection: vi.fn() });
+      const { app } = buildTestApp({ pool });
+
+      const res = await request(app)
+        .post('/api/v2/contact')
+        .set('Idempotency-Key', 'short')
+        .send(validPayload());
+
+      expect(res.status).toBe(400);
+      expect(res.body.status).toBe('error');
+      expect(pool.getConnection).not.toHaveBeenCalled();
+    });
+
+    it('works without the header exactly as before (no key queries)', async () => {
+      const connection = buildHappyConnection();
+      const { app } = buildTestApp({ pool: poolWithConnection(connection) });
+
+      const res = await request(app).post('/api/v2/contact').send(validPayload());
+
+      expect(res.status).toBe(201);
+      expect(
+        (connection.query.mock.calls as QueryCall[]).some(([sql]) =>
+          sql.includes('contact_idempotency_keys'),
+        ),
+      ).toBe(false);
+    });
+  });
+});
+
+describe('hashContactRequest', () => {
+  it('ignores key order but changes with the data', () => {
+    const a = createContactRequestSchema.parse(validPayload());
+    const reordered = Object.fromEntries(Object.entries(a).reverse()) as typeof a;
+    const changed = createContactRequestSchema.parse(validPayload({ tel: '0299999999' }));
+
+    expect(hashContactRequest(reordered)).toBe(hashContactRequest(a));
+    expect(hashContactRequest(changed)).not.toBe(hashContactRequest(a));
   });
 });

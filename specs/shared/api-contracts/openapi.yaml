@@ -197,7 +197,7 @@ components:
         job: { type: [string, "null"] }
         email: { type: [string, "null"] }
         "no": { type: integer }
-        cid: { type: integer, description: "FK to contact.id — NOT enforced at DB level (contact_list is MyISAM)." }
+        cid: { type: integer, description: "FK to contact.id — NOT enforced at DB level (no FOREIGN KEY constraint is defined)." }
         created_at: { type: [string, "null"], format: date-time }
         updated_at: { type: [string, "null"], format: date-time }
       x-source-file: app/Models/ContactListModel.php
@@ -221,6 +221,8 @@ components:
         suggest_name: { type: string, nullable: true }
         contactList:
           type: array
+          maxItems: 10
+          description: At most 10 attendees per registration (the public form offers 1–10).
           items:
             $ref: "#/components/schemas/ContactListItemInput"
       required: [class, quest, company, tel, num, contactList]
@@ -566,6 +568,22 @@ paths:
       x-source-controller: Contact\ContactController
       x-source-method: store
       x-confirmation-status: CONFIRMED
+      description: >
+        Rate limited to 10 requests / 10 minutes / client IP (in-memory, per backend
+        instance). Duplicate protection via the optional Idempotency-Key header: the
+        first request with a key creates the registration; any later or concurrent
+        request with the same key and the same body gets that registration back
+        (201, `replayed: true`, header `Idempotent-Replayed: true`) without writing a
+        second row or sending a second email. The same key with a different body is
+        409. Clients should generate a new key for every distinct submission and
+        reuse it only to resend identical data. A 201 always means the registration
+        is saved; `notification` only reports the staff notification email.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Client-generated id for this submission (UUID recommended).
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{16,64}$" }
       requestBody:
         required: true
         content:
@@ -581,7 +599,11 @@ paths:
                 - { name: "王小明", email: "test@example.com", job: "經理", cel: "0912345678" }
       responses:
         "201":
-          description: Created
+          description: Created (or replayed — see `replayed`)
+          headers:
+            Idempotent-Replayed:
+              description: Present with value "true" only when the response is a replay.
+              schema: { type: string, enum: ["true"] }
           content:
             application/json:
               schema:
@@ -589,11 +611,39 @@ paths:
                 properties:
                   message: { type: string, example: "新增成功" }
                   data: { $ref: "#/components/schemas/Contact" }
+                  notification:
+                    type: string
+                    enum: [sent, failed, skipped]
+                    description: >
+                      Staff notification email for this request. "failed" = SMTP error or
+                      timeout, registration still saved. "skipped" = mail not configured,
+                      or this is a replay (the email belongs to the original request).
+                  replayed:
+                    type: boolean
+                    description: true when an earlier request with the same Idempotency-Key already saved this registration.
+                required: [message, data, notification, replayed]
         "400":
-          description: Validation error
+          description: Validation error (body, more than 10 contactList items, or malformed Idempotency-Key)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationError" }
+        "409":
+          description: >
+            IDEMPOTENCY_KEY_CONFLICT — the Idempotency-Key was already used for a different
+            body, or its original registration has since been deleted. Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "429":
+          description: 請求過於頻繁，請稍後再試
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "503":
+          description: DB_POOL_SATURATED — no database connection available within 10 s; nothing was written, safe to retry with the same Idempotency-Key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
 
   /api/v2/faq:
     get:
