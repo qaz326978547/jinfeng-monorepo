@@ -2,37 +2,6 @@ import { $http, asyncDo, isResponseOK } from '@/utils/http';
 
 export namespace AuthApi {
     /**
-     * 註冊
-     */
-    export async function register(data: {
-        /**
-         * 名字
-         */
-        name: string;
-        /**
-         * 電子郵件
-         */
-        email: string;
-        /**
-         * 密碼
-         */
-        password: string;
-        /**
-         * 確認密碼
-         */
-        password_confirmation: string;
-        /**
-         *  是否為最高權限
-         */
-        is_admin?: boolean;
-    }) {
-        const [err, result] = await asyncDo($http<any>('post', '/auth/register', data));
-        if (!isResponseOK(err, result)) {
-            return false;
-        }
-        return result;
-    }
-    /**
      * 登入
      */
     export async function login(data: {

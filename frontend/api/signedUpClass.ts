@@ -159,7 +159,6 @@ export namespace SignedUpClassInfoApi {
 }
 
 // {{host}}/api/v2/auth/login
-// {{host}}/api/v2/auth/register
 // {{host}}/api/v2/admin/contact
 // {{host}}/api/v2/contact/1
 // {{host}}/api/v2/admin/contact-list

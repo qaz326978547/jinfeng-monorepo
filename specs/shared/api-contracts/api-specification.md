@@ -222,30 +222,11 @@
 - **原始碼位置**：`app/Http/Controllers/Auth/AuthController.php` (`login`)
 - **確認狀態**：AUTH_REIMPLEMENTATION_REQUIRED（僅 token 簽發部分；帳密驗證邏輯本身 CONFIRMED）
 
-## 7. `POST /api/v2/auth/register`
+## 7. ~~`POST /api/v2/auth/register`~~（2026-10-26 已移除）
 
-- **需登入**：否
-- **Request body**：
-
-  | 欄位 | 必填 | 型別 | Validation | 預設值 |
-  |---|---|---|---|---|
-  | `name` | 是 | string | required | - |
-  | `email` | 是 | string (email) | required, email 格式, 必須在 `users.email` 唯一 | - |
-  | `password` | 是 | string | required, 至少 6 字元, 需搭配 `password_confirmation` 二次確認且相同 | - |
-  | `password_confirmation` | 是（因 `confirmed` 規則） | string | 必須與 `password` 相同 | - |
-  | `is_admin` | 否 | boolean | boolean 型別 | 未提供則資料庫層 default `0` |
-
-- **成功 HTTP status**：`201`
-- **成功 Response JSON**：`{ "message": "註冊成功" }`（**不回傳使用者資料或 token**，需另外呼叫登入）
-- **錯誤 HTTP status**：`400`
-- **錯誤 Response JSON**：`{ "status": "error", "message": "<第一條驗證錯誤訊息>" }`
-- **使用資料表**：`users`（寫入）
-- **寫入的欄位**：`name`, `email`, `password`（bcrypt 雜湊後）, `is_admin`（若提供）
-- **Transaction 行為**：無（單一 insert，不需要）
-- **實際商業邏輯**：見 `api-business-logic.md` 第 7 節
-- **原始碼位置**：`app/Http/Controllers/Auth/AuthController.php` (`register`)、
-  `app/Http/Requests/CreateUser.php`
-- **確認狀態**：CONFIRMED（不涉及 token，無需重新設計）
+- **狀態**：**已移除**，任何 method 都回 `404`。
+- **原因**：這支是公開路由（不需登入），又接受 `is_admin`，任何人都能建立管理員帳號，進而讀取所有報名與諮詢個資。前端沒有任何地方呼叫它（`AuthApi.register` 是死碼，一併刪除）。
+- **替代方式**：帳號由維運人員直接在資料庫建立（bcrypt 雜湊後 `INSERT INTO users`），見 `QA測試.md` §4。Laravel 原本的行為（見 `api-business-logic.md` 第 7 節）不再保留。
 
 ## 8. `POST /api/v2/auth/logout`
 

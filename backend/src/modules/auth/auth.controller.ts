@@ -1,12 +1,12 @@
 import type { Request, RequestHandler, Response } from 'express';
 import { asyncHandler } from '../../shared/http/async-handler';
 import type { AuthService } from './auth.service';
-import type { LoginRequest, RegisterRequest } from './auth.schemas';
+import type { LoginRequest } from './auth.schemas';
 
 /**
- * login/register are factories, not plain handlers: they need an
+ * login is a factory, not a plain handler: they need an
  * AuthService instance built once at the composition root (auth.routes.ts)
- * with its injected dependencies (JWT settings, bcrypt rounds, repository,
+ * with its injected dependencies (JWT settings, repository,
  * logger) — see plan.md "資料流程".
  */
 export function createLoginHandler(authService: AuthService): RequestHandler {
@@ -14,14 +14,6 @@ export function createLoginHandler(authService: AuthService): RequestHandler {
     const { email, password } = req.body as LoginRequest;
     const { token } = await authService.login(email, password);
     res.status(200).json({ token });
-  });
-}
-
-export function createRegisterHandler(authService: AuthService): RequestHandler {
-  return asyncHandler(async (req: Request, res: Response) => {
-    const body = req.body as RegisterRequest;
-    await authService.register(body);
-    res.status(201).json({ message: '註冊成功' });
   });
 }
 
