@@ -434,18 +434,6 @@ components:
       required: [status]
       x-confirmation-status: NEW_NODE_FEATURE
 
-    RegisterRequest:
-      type: object
-      properties:
-        name: { type: string }
-        email: { type: string, format: email }
-        password: { type: string, minLength: 6 }
-        password_confirmation: { type: string, description: "required by Laravel 'confirmed' rule; not persisted" }
-        is_admin: { type: boolean }
-      required: [name, email, password, password_confirmation]
-      x-source-file: app/Http/Requests/CreateUser.php
-      x-confirmation-status: CONFIRMED
-
     LoginRequest:
       type: object
       properties:
@@ -767,38 +755,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LegacyValidationError" }
-
-  /api/v2/auth/register:
-    post:
-      operationId: authRegister
-      summary: 註冊新使用者
-      tags: [Auth]
-      x-source-file: app/Http/Controllers/Auth/AuthController.php
-      x-source-controller: Auth\AuthController
-      x-source-method: register
-      x-confirmation-status: CONFIRMED
-      description: >
-        Pure data-creation endpoint (bcrypt-hash the password, insert into `users`), no token
-        involved — fully CONFIRMED and framework-agnostic, nothing here needs auth reimplementation.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/RegisterRequest" }
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message: { type: string, example: "註冊成功" }
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ValidationError" }
 
   /api/v2/auth/logout:
     post:

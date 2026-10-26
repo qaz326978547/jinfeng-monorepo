@@ -250,7 +250,6 @@
       "comment": null,
       "used_by_apis": [
         "POST /api/v2/auth/login",
-        "POST /api/v2/auth/register",
         "POST /api/v2/auth/logout (indirect)"
       ]
     }
