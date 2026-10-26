@@ -35,7 +35,7 @@ Node.js/TypeScript 後端，從 Laravel 5.6 舊系統遷移而來。完整遷移
 - Access token 用 **JWT**（`jsonwebtoken`），只簽發/驗證，不用來加密密碼。Refresh token 機制留待下一階段決定。
 - `src/middleware/authenticate.ts` / `authorize.ts` 是驗證 Bearer JWT、檢查 `req.user.isAdmin` 的 middleware。
 - **`POST /api/v2/auth/login` 已實作完成**（`src/modules/auth/auth.service.ts` + `user.repository.ts`）：查詢 `users` 表、以既有 bcrypt hash 驗證密碼、簽發 JWT（`sub`/`email`/`isAdmin`）。`AuthService` 的 JWT 設定、repository、logger 皆於 composition root（`app.ts` → `routes/index.ts` → `auth.routes.ts`）建構階段注入，不讀取全域 env，可獨立單元測試（見 `tests/unit/auth.service.test.ts`）。請求驗證失敗時回傳與舊 Laravel 相容的 `422 { message, errors }` 格式（`src/shared/errors/legacy-validation-error.ts`），僅限此端點，不影響其他路由的統一 `400` 格式（詳見 `specs/001-auth-login/`）。
-- `auth/register`、`auth/logout` 的 controller 仍是 `501 Not Implemented` 骨架，真正邏輯待後續功能規格實作。
+- `auth/register` 已於 2026-10-26 移除（公開又接受 `is_admin` 的安全漏洞）；帳號由維運人員直接寫入資料庫，見根目錄 `QA測試.md` §4。
 
 ## 目錄結構
 
@@ -49,7 +49,7 @@ src/
     database/                # mysql2 pool、transaction helper、唯讀 schema verifier
     logger/                  # pino-http middleware
     openapi/                 # 讀取/驗證 migration-spec/openapi.yaml
-  modules/auth/               # /api/v2/auth 路由；login 已實作（service/repository），register/logout 仍為骨架
+  modules/auth/               # /api/v2/auth 路由；login／logout；沒有 register
     auth.routes.ts             # composition root：建構 UserRepository/AuthService 並注入 login handler
     auth.service.ts             # 帳密驗證、雜湊格式檢查、JWT 簽發（依賴皆為建構子注入）
     user.repository.ts          # mysql2/promise 對 users 表的唯讀查詢
@@ -115,7 +115,7 @@ docker compose up -d api
 
 ## 下一階段建議
 
-1. 實作 `auth/register`、`auth/logout` 真正商業邏輯（bcrypt 雜湊、`users` table insert；`logout` 的 token 撤銷策略待決）。`auth/login` 已完成，見上方「密碼雜湊與 JWT」與 `specs/001-auth-login/`。
+1. `auth/logout` 的 token 撤銷策略待決（`auth/register` 已移除，不再實作）。`auth/login` 已完成，見上方「密碼雜湊與 JWT」與 `specs/001-auth-login/`。
 2. 依 `migration-spec/node-api-implementation-checklist.md` 逐支實作其餘 16 支 `/api/v2/...` API（`seo`、`contact*`、`faq`、`admin/*`），每支完成後跑 `db:verify` 確認 schema 沒有意外變動。
 3. 視需要在 mysql2 之上加 Kysely 型別層。
 4. 決定 refresh token 策略、`admin/*` 的 `is_admin` 授權（見 `migration-spec/known-legacy-issues.md` #2）。

@@ -27,7 +27,6 @@ export interface RouterDeps {
   pool: Pool;
   jwtSecret: string;
   jwtExpiresIn: string;
-  bcryptSaltRounds: number;
   mailConfig: MailConfig;
   /** Test-only mail transport override — see modules/contact/contact.routes.ts. */
   mailTransport?: Transporter | null | undefined;
@@ -50,7 +49,6 @@ export function createRootRouter(deps: RouterDeps): Router {
       pool: deps.pool,
       jwtSecret: deps.jwtSecret,
       jwtExpiresIn: deps.jwtExpiresIn,
-      bcryptSaltRounds: deps.bcryptSaltRounds,
       logger: deps.logger,
     }),
   );

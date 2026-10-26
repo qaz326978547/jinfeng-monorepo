@@ -177,7 +177,7 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 | 4 | POST | `/api/v2/contact` | **DONE(API+DB+Mail)/PARTIAL(Queue)** | ✅ | ✅ 是(核心轉換流程) | ✅ 14 tests | ✅ |
 | 5 | GET | `/api/v2/faq` | **DONE(API)/PARTIAL(cache)** | ✅ | ✅ 是 | ✅ 4 tests | ✅ |
 | 6 | POST | `/api/v2/auth/login` | **DONE** | ✅ | ✅ 是 | ✅ 18 tests | ✅ |
-| 7 | POST | `/api/v2/auth/register` | **DONE** | ✅ | ⚠️ 前端有呼叫但**未接 UI**(死碼，見 4.2) | ✅ 11 tests | ✅ |
+| 7 | POST | `/api/v2/auth/register` | **REMOVED 2026-10-26**（安全修正，見 #7） | ✅ | ⚠️ 前端有呼叫但**未接 UI**(死碼，見 4.2) | ✅ 11 tests | ✅ |
 | 8 | POST | `/api/v2/auth/logout` | **DONE(stateless)** | ✅ | ❌ 前端完全沒有登出功能(見 §10.13) | ✅ 6 tests | ✅ |
 | 9 | GET | `/api/v2/admin/contact` | **DONE** | ✅ | ✅ 是 | ✅ 6 tests | ✅ |
 | 10 | GET | `/api/v2/admin/contact/{id}` | **DONE** | ✅ | ✅ 是 | ✅ 4 tests | ✅(已修正 contact_list key) |
@@ -269,7 +269,8 @@ Legacy Laravel `ContactController@store` 沒有把 `contact` 與 `contact_list` 
 - Cache/Mail/Queue：無
 - **Test 覆蓋**：`tests/integration/auth-login.test.ts`(13)、`tests/unit/auth.service.test.ts`(5)
 
-#### #7 `POST /api/v2/auth/register` — **DONE**
+#### #7 `POST /api/v2/auth/register` — **REMOVED（2026-10-26，安全修正）**
+- ⚠️ 已移除：公開路由又接受 `is_admin`，任何人都能建立管理員。route、handler、schema、`AuthService.register`、`UserRepository.createUser` 與測試全部刪除，改由 `tests/integration/auth-register-removed.test.ts` 確認回 404 且不碰資料庫。以下為移除前的歷史紀錄。
 - Laravel：`AuthController.php` (`register`) + `CreateUser.php`
 - Node：`auth.routes.ts` → `auth.controller.ts::createRegisterHandler` → `auth.service.ts::AuthService.register` → `user.repository.ts::UserRepository.createUser`
 - Request validation：`registerRequestSchema`(Zod)，欄位與規格一致(`name`/`email`/`password`≥6/`password_confirmation`/`is_admin`)，新增 `password === password_confirmation` 的 `.refine()`；路由已補上 `formRequestErrorFormat: true`(修正 §10.3 分析階段發現的缺口)，驗證失敗回 `400 {status:"error", message}`

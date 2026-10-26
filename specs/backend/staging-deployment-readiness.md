@@ -179,8 +179,8 @@ npm run db:verify
 
 | 測試資料 | 建立方式 | 現況 |
 |---|---|---|
-| admin user | `POST /api/v2/auth/register`，`is_admin:true` | ✅ 有 API，見 `QA測試.md` §4.1 |
-| normal user | `POST /api/v2/auth/register`（不帶 `is_admin`） | ✅ 有 API，見 `QA測試.md` §4.2 |
+| admin user | SQL `INSERT INTO users`（bcrypt、`is_admin=1`） | 見 `QA測試.md` §4.1（register API 已於 2026-10-26 移除） |
+| normal user | 同上，`is_admin=0` | 見 `QA測試.md` §4.2 |
 | contact_class | `POST /api/v2/admin/contact-class`（需先有 admin token） | ✅ 有 API |
 | contact_quest | ❌ **沒有寫入 API** | 只能直接 SQL INSERT |
 | seo | ❌ **沒有寫入 API** | 只能直接 SQL INSERT |

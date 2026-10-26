@@ -27,6 +27,8 @@ const envSchema = z.object({
       error: 'JWT_EXPIRES_IN must be one of: 1d, 7d, 14d, 30d',
     })
     .default('30d'),
+  // Unused since POST /auth/register was removed (2026-10-26) — nothing in the
+  // app hashes passwords any more. Kept so existing deployment env stays valid.
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(20).default(10),
 
   CORS_ALLOWED_ORIGINS: z.string().default(''),

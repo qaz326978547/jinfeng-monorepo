@@ -4,17 +4,11 @@ import jwt from 'jsonwebtoken';
 import type { Logger } from 'pino';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { UnauthorizedError } from '../../src/shared/errors/app-error';
-import { FormRequestValidationError } from '../../src/shared/errors/form-request-validation-error';
-import {
-  DuplicateEmailError,
-  type UserRepository,
-  type UserRow,
-} from '../../src/modules/auth/user.repository';
+import type { UserRepository, UserRow } from '../../src/modules/auth/user.repository';
 
 const JWT_SECRET = 'unit-test-secret-not-for-real-use';
 const PASSWORD = 'correct-password';
 const PASSWORD_HASH = bcrypt.hashSync(PASSWORD, 4);
-const BCRYPT_SALT_ROUNDS = 4; // fast, test-only — not the production value
 
 function createFakeLogger(): Logger {
   return { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } as unknown as Logger;
@@ -46,7 +40,6 @@ describe('AuthService (unit, no Express app)', () => {
       const service = new AuthService({
         jwtSecret: JWT_SECRET,
         jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
         repository,
         logger: createFakeLogger(),
       });
@@ -69,7 +62,6 @@ describe('AuthService (unit, no Express app)', () => {
       const service = new AuthService({
         jwtSecret: JWT_SECRET,
         jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
         repository,
         logger: createFakeLogger(),
       });
@@ -84,7 +76,6 @@ describe('AuthService (unit, no Express app)', () => {
       const service = new AuthService({
         jwtSecret: JWT_SECRET,
         jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
         repository,
         logger: createFakeLogger(),
       });
@@ -99,7 +90,6 @@ describe('AuthService (unit, no Express app)', () => {
       const service = new AuthService({
         jwtSecret: JWT_SECRET,
         jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
         repository,
         logger: createFakeLogger(),
       });
@@ -115,7 +105,6 @@ describe('AuthService (unit, no Express app)', () => {
       const service = new AuthService({
         jwtSecret: JWT_SECRET,
         jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
         repository,
         logger,
       });
@@ -141,7 +130,6 @@ describe('AuthService (unit, no Express app)', () => {
       const service = new AuthService({
         jwtSecret: JWT_SECRET,
         jwtExpiresIn: '30d',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
         repository,
         logger: createFakeLogger(),
       });
@@ -151,104 +139,6 @@ describe('AuthService (unit, no Express app)', () => {
 
       const THIRTY_DAYS_IN_SECONDS = 30 * 24 * 60 * 60;
       expect(decoded.exp - decoded.iat).toBe(THIRTY_DAYS_IN_SECONDS);
-    });
-  });
-
-  describe('register()', () => {
-    it('hashes the password with bcryptSaltRounds before writing it (never the plaintext)', async () => {
-      const createUser = vi.fn().mockResolvedValue(1);
-      const repository = { createUser } as unknown as UserRepository;
-      const service = new AuthService({
-        jwtSecret: JWT_SECRET,
-        jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
-        repository,
-        logger: createFakeLogger(),
-      });
-
-      await service.register({
-        name: '王小明',
-        email: 'new@example.com',
-        password: PASSWORD,
-        password_confirmation: PASSWORD,
-      });
-
-      expect(createUser).toHaveBeenCalledTimes(1);
-      const input = createUser.mock.calls[0]?.[0] as { passwordHash: string };
-      expect(input.passwordHash).not.toBe(PASSWORD);
-      expect(input.passwordHash).toMatch(/^\$2[aby]\$04\$/); // $04$ proves BCRYPT_SALT_ROUNDS was actually used
-      expect(await bcrypt.compare(PASSWORD, input.passwordHash)).toBe(true);
-    });
-
-    it('omits isAdmin from the repository call when is_admin was not provided (lets the DB default apply)', async () => {
-      const createUser = vi.fn().mockResolvedValue(1);
-      const repository = { createUser } as unknown as UserRepository;
-      const service = new AuthService({
-        jwtSecret: JWT_SECRET,
-        jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
-        repository,
-        logger: createFakeLogger(),
-      });
-
-      await service.register({
-        name: '王小明',
-        email: 'new@example.com',
-        password: PASSWORD,
-        password_confirmation: PASSWORD,
-      });
-
-      const input = createUser.mock.calls[0]?.[0] as Record<string, unknown>;
-      expect('isAdmin' in input).toBe(false);
-    });
-
-    it('passes isAdmin: true through to the repository when provided', async () => {
-      const createUser = vi.fn().mockResolvedValue(1);
-      const repository = { createUser } as unknown as UserRepository;
-      const service = new AuthService({
-        jwtSecret: JWT_SECRET,
-        jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
-        repository,
-        logger: createFakeLogger(),
-      });
-
-      await service.register({
-        name: '王小明',
-        email: 'new@example.com',
-        password: PASSWORD,
-        password_confirmation: PASSWORD,
-        is_admin: true,
-      });
-
-      const input = createUser.mock.calls[0]?.[0] as { isAdmin?: boolean };
-      expect(input.isAdmin).toBe(true);
-    });
-
-    it('translates DuplicateEmailError into a 400 FormRequestValidationError', async () => {
-      const repository = {
-        createUser: vi.fn().mockRejectedValue(new DuplicateEmailError()),
-      } as unknown as UserRepository;
-      const service = new AuthService({
-        jwtSecret: JWT_SECRET,
-        jwtExpiresIn: '1h',
-        bcryptSaltRounds: BCRYPT_SALT_ROUNDS,
-        repository,
-        logger: createFakeLogger(),
-      });
-
-      const error = await service
-        .register({
-          name: '王小明',
-          email: 'taken@example.com',
-          password: PASSWORD,
-          password_confirmation: PASSWORD,
-        })
-        .catch((e: unknown) => e);
-
-      expect(error).toBeInstanceOf(FormRequestValidationError);
-      expect((error as FormRequestValidationError).message).toBe('email 已被使用');
-      expect((error as FormRequestValidationError).statusCode).toBe(400);
     });
   });
 });

@@ -119,49 +119,25 @@ npm run dev
 
 ## 4. 建立測試帳號
 
-前端目前**沒有註冊頁面**（`AuthApi.register` 是死碼，刻意不做 UI，見 `specs/backend/laravel-to-node-parity.md` §10.13），要建立測試帳號必須直接呼叫 backend API。
-
-### 目前本機資料庫已建立的帳號
-
-以下帳號已透過 §4.1 的方式建立在本機 `jinfeng_local` 資料庫（`mysql_data` volume 會持續保留，除非執行 `docker compose down -v`，見 §7）：
-
-| Email | 密碼 | is_admin | 用途 |
-|---|---|---|---|
-| `qaz326978547@gmail.com` | `qaz19981127` | ✅ 是 | 主要 QA 管理員測試帳號，已驗證可登入並成功呼叫 `/api/v2/admin/*`（含新增的 `admin/faq`） |
-| `bean@test.com` | （未知，非本次建立） | ✅ 是 | 先前本機測試留下的既有帳號 |
-
-若要重新建立（例如換一台機器、或執行過 `docker compose down -v` 清空資料庫），照下面 §4.1 的指令，把 email/password 換成上表的值即可。
+系統**沒有註冊 API**：`POST /api/v2/auth/register` 原本公開又接受 `is_admin`，任何人都能建立管理員，已於 2026-10-26 移除。測試帳號一律直接寫進**本機**資料庫。帳號密碼不要寫進本文件或任何 repo 檔案（repo 是公開的）。
 
 ### 4.1 建立管理員帳號（測試 admin 後台必備）
 
 ```bash
-curl -X POST http://localhost:8080/api/v2/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "QA Admin",
-    "email": "qa-admin@example.com",
-    "password": "password123",
-    "password_confirmation": "password123",
-    "is_admin": true
-  }'
+# 1. 在 backend/ 產生 bcrypt 雜湊（密碼自訂，只用於本機）
+HASH=$(cd backend && node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 10))" '<本機測試密碼>')
+
+# 2. 寫進本機 docker-compose 的 MySQL
+docker compose -f backend/docker-compose.yml exec -T mysql \
+  mysql -ujinfeng -plocal_dev_only jinfeng_local -e \
+  "INSERT INTO users (name, email, password, is_admin, created_at, updated_at) VALUES ('QA Admin', 'qa-admin@example.com', '$HASH', 1, NOW(), NOW())"
 ```
 
-預期：`201 {"message":"註冊成功"}`。`is_admin: true` 由 backend 直接寫入 `users.is_admin`（不是前端才決定的，見 `backend/src/modules/auth/auth.schemas.ts`/`auth.service.ts`），這是目前**唯一**建立 admin 帳號的方式。
+然後用 `qa-admin@example.com` 與上面的密碼呼叫 `POST /api/v2/auth/login`，或在前端 `/auth` 登入。
 
 ### 4.2 建立一般（非 admin）帳號（測試 403 用）
 
-同上，`is_admin` 欄位整個省略即可（DB `DEFAULT 0`）：
-
-```bash
-curl -X POST http://localhost:8080/api/v2/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "QA Normal User",
-    "email": "qa-user@example.com",
-    "password": "password123",
-    "password_confirmation": "password123"
-  }'
-```
+同上，把 email 換成 `qa-user@example.com`、`is_admin` 改成 `0`。
 
 ---
 

@@ -187,8 +187,8 @@ npm run db:verify
 
 | 測試資料 | 建立方式 |
 |---|---|
-| admin user | `POST /api/v2/auth/register`（帶 `is_admin:true`）——**不需要**寫進 seed SQL，用 API 呼叫即可 |
-| normal user | `POST /api/v2/auth/register`（不帶 `is_admin`）——同上，用 API |
+| admin user | 以 SQL `INSERT INTO users`（bcrypt 雜湊、`is_admin=1`），做法見 `QA測試.md` §4.1。`POST /api/v2/auth/register` 已於 2026-10-26 移除 |
+| normal user | 同上，`is_admin=0` |
 | contact_class | `POST /api/v2/admin/contact-class`（需先有 admin token）——同上，用 API |
 | seo | ❌ 沒有寫入 API，**只能**用 `staging-seed.sql` 直接 INSERT |
 | faq | ❌ 沒有寫入 API，**只能**用 `staging-seed.sql` 直接 INSERT |
