@@ -122,4 +122,22 @@ describe('loadEnv', () => {
       expect(() => loadEnv({ ...TLS_ENV, DB_SSL: value, DB_SSL_CA: CA })).toThrow(/DB_SSL/);
     });
   });
+
+  describe('CLIENT_IP_HEADER', () => {
+    it('defaults to empty (use req.ip)', () => {
+      expect(loadEnv(VALID_ENV).CLIENT_IP_HEADER).toBe('');
+    });
+
+    it('normalizes the header name', () => {
+      expect(
+        loadEnv({ ...VALID_ENV, CLIENT_IP_HEADER: ' DO-Connecting-IP ' }).CLIENT_IP_HEADER,
+      ).toBe('do-connecting-ip');
+    });
+
+    it('rejects a value that is not a bare header name', () => {
+      expect(() =>
+        loadEnv({ ...VALID_ENV, CLIENT_IP_HEADER: 'do-connecting-ip: 1.2.3.4' }),
+      ).toThrow(/CLIENT_IP_HEADER/);
+    });
+  });
 });

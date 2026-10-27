@@ -14,6 +14,7 @@ import { createHttpLogger } from './infrastructure/logger/http-logger';
 import { errorHandler } from './middleware/error-handler';
 import { notFoundHandler } from './middleware/not-found';
 import { requestId } from './middleware/request-id';
+import { createClientIp } from './middleware/client-ip';
 import { createRootRouter } from './routes';
 
 export interface CreateAppOptions {
@@ -36,9 +37,12 @@ export function createApp({ env, pool, logger, mailTransport, s3Client }: Create
   const app = express();
 
   // Zeabur terminates TLS at a reverse proxy in front of this container.
+  // On DigitalOcean App Platform req.ip is the DO ingress instead, so rate
+  // limits key on CLIENT_IP_HEADER there (middleware/client-ip.ts).
   app.set('trust proxy', 1);
 
   app.use(requestId);
+  app.use(createClientIp(env.CLIENT_IP_HEADER));
   app.use(createHttpLogger(logger));
   app.use(helmet());
   app.use(cors(buildCorsOptions(env)));

@@ -51,6 +51,18 @@ const baseEnvSchema = z.object({
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(20).default(10),
 
   CORS_ALLOWED_ORIGINS: z.string().default(''),
+  // Header the platform's edge sets to the real client IP, used as the
+  // rate-limit key (middleware/client-ip.ts). Empty = use req.ip (Zeabur, via
+  // `trust proxy: 1`). DigitalOcean App Platform: `do-connecting-ip` — its
+  // X-Forwarded-For carries the DO ingress IP, so req.ip there is shared by
+  // every visitor. Only set this to a header the edge overwrites on every
+  // request; a header clients can pass through would let them pick their key.
+  CLIENT_IP_HEADER: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9-]*$/, 'CLIENT_IP_HEADER must be a bare header name, e.g. do-connecting-ip')
+    .default(''),
 
   // Mail is optional at the schema level: an unset MAIL_HOST means "mail not
   // configured" (see infrastructure/mail/mail-transport.ts), not a startup
