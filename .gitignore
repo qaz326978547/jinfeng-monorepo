@@ -13,3 +13,6 @@ docs/change/*.sql
 docs/change/_manifest.json
 # 舊 Laravel／Redis 的實際環境變數值（含密碼）
 docs/環境變數.md
+
+# 原始查核紀錄（含正式庫安全細節），只保存在本機
+docs/change/Zeabur正式資料庫盤點報告.md

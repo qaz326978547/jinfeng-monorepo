@@ -6,7 +6,7 @@
 > 依據：
 > - 本機 Docker `mysql:8.4`（`sql_require_primary_key=ON`、UTC）匯入 NewData.sql 後的實測
 > - backend／frontend 原始碼
-> - 2026-10-23 對 Zeabur 正式庫的唯讀 `performance_schema` 統計（見 [Zeabur正式資料庫盤點報告.md](Zeabur正式資料庫盤點報告.md)）
+> - 2026-10-23 對 Zeabur 正式庫的唯讀 `performance_schema` 統計（盤點報告只保存在本機，不放進公開 repo）
 > - DigitalOcean 官方文件（§9）
 > 本文不含帳密和個資；所有統計都只用彙總數字。
 

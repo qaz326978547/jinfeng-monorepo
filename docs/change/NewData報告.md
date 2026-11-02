@@ -3,7 +3,7 @@
 > 日期：2026-10-23
 > 讀者：負責這次遷移的技術人員與專案團隊
 > 來源備份與產出檔都放在 repo 外：`~/secure/jinfeng-db-backups/2026-10-23/`（見 §8）
-> 前一份報告：[Zeabur正式資料庫盤點報告.md](Zeabur正式資料庫盤點報告.md)
+> 前一份報告：Zeabur 正式資料庫盤點報告（含原始查核紀錄，只保存在本機，不放進公開 repo）
 
 ## 重點摘要
 
@@ -187,7 +187,7 @@ AUTO_INCREMENT 檢查的是欄位有沒有這個屬性，**不是**下一個編�
 | P3 | backend 的 TLS 修改（2026-10-24 已完成，見 [報名防重複與DB連線變更.md](報名防重複與DB連線變更.md)）**合併並部署到 DO**。DO backend 的環境變數設定：`DB_SSL=true`、`DB_HOST` 填控制台顯示的叢集主機名稱（不能填 IP）、`DB_SSL_CA` 貼上叢集的 CA certificate | DO 的 backend `/ready` 回 200；用 `SHOW SESSION STATUS LIKE 'Ssl_version'` 確認是 TLSv1.2 以上 |
 | P4 | 實測 DO 上能不能寄信（[遷移預算 §重點 3](../digitalocean-migration-budget.md)） | 報名和諮詢的通知信都收得到 |
 | P5 | **完整演練一次** §7-3 的 S3～S10，用當天最新的備份，匯入 DO 的**演練用**資料庫 | 三方核對一致、`db:verify` OK、[QA測試.md](../../QA測試.md) 通過，並記錄每一步花多久 |
-| P6 | 停用舊服務：jinfeng-back-v2、Redis、jinfeng-front、jinfeng-front-v2（先完成[前一份報告 §3-3](Zeabur正式資料庫盤點報告.md)） | Zeabur 顯示已暫停 |
+| P6 | 停用舊服務：jinfeng-back-v2、Redis、jinfeng-front、jinfeng-front-v2（先完成前一份盤點報告 §3-3 的停用前確認） | Zeabur 顯示已暫停 |
 | P7 | DNS TTL 調到 300 秒，至少提前 48 小時 | DNS 查詢確認 |
 | P8 | 跟金豐約好維護時段（離峰），通知後台使用者當天不要操作 | 書面確認 |
 
@@ -202,7 +202,7 @@ AUTO_INCREMENT 檢查的是欄位有沒有這個屬性，**不是**下一個編�
 | S3 | **凍結 Zeabur 寫入** | Zeabur MySQL：`SET GLOBAL super_read_only = ON;` 然後 `SELECT @@global.super_read_only;` 結果要是 `1` | R-A |
 | S4 | 確認沒有寫入了 | 隔 1 分鐘跑兩次 `reconcile-counts.sql`，兩次結果要一樣；`SHOW PROCESSLIST` 沒有在執行的寫入 | 重做 S3 |
 | S5 | 留下來源基準 | Zeabur 跑 `reconcile-counts.sql` → 存成 `zeabur-final.txt` | — |
-| S6 | 最終備份 | Zeabur 面板備份，或用 `mysqldump`（見[前一份報告 §4-2](Zeabur正式資料庫盤點報告.md)）→ 存到 `~/secure/jinfeng-db-backups/<日期>/data.sql`，並記錄 SHA-256 | R-A |
+| S6 | 最終備份 | Zeabur 面板備份，或用 `mysqldump`（`--single-transaction --set-gtid-purged=OFF --no-tablespaces`，參數同 [build-newdata.sh](build-newdata.sh)）→ 存到 `~/secure/jinfeng-db-backups/<日期>/data.sql`，並記錄 SHA-256 | R-A |
 | S7 | 產生 NewData | `docs/change/build-newdata.sh <data.sql> <NewData.sql>`；第 6 步的輸出要跟 `zeabur-final.txt` 完全一樣 | R-A |
 | S8 | 匯入 DO（**新建、空的**正式資料庫） | `mysql --defaults-extra-file=~/secure/do-admin.cnf --ssl-mode=REQUIRED <db> < NewData.sql` | 刪掉這個資料庫重新匯入；還是不行就 R-A |
 | S8b | 套用 Node 版新增的 migration | `DB_*`（含 `DB_SSL`、`DB_SSL_CA`）指向 DO，執行 `npm run db:migrate -- --allow-production`。應該顯示 001～007 skip、**只套用 008**（`contact_idempotency_keys`）。NewData.sql 來自 Zeabur，本來就沒有這張表 | R-A |
@@ -260,7 +260,7 @@ AUTO_INCREMENT 檢查的是欄位有沒有這個屬性，**不是**下一個編�
 ### 7-5. 觀察期與收尾
 
 - **觀察期建議 14 天。** 這段期間 Zeabur MySQL 保持凍結、不刪除，每次重啟後都要確認 `super_read_only=1`。
-- **觀察期結束後**：停掉 Zeabur MySQL、更換 root 密碼（它曾經出現在對話中）、刪除 Zeabur project。
+- **觀察期結束後**：停掉 Zeabur MySQL、更換 root 密碼、刪除 Zeabur project。
 - 最終備份依 §8 的方式保存。
 
 ## 8. 決定 4：備份檔移出 repo
