@@ -1,11 +1,11 @@
 import type { Pool, PoolConnection } from 'mysql2/promise';
 
 /**
- * Runs `fn` inside a transaction on a dedicated connection. Note that most
- * legacy tables (contact, contact_class, contact_quest, contact_list, faq,
- * seo, ...) are MyISAM and silently ignore transaction boundaries — this
- * helper is meaningful only for InnoDB tables (e.g. the future `users`
- * table). Preserving that MyISAM behaviour is intentional, not a bug.
+ * Runs `fn` inside a transaction on a dedicated connection. Since the
+ * DigitalOcean migration (2026-10-23) every table is InnoDB, so a failure
+ * rolls back all writes made through `connection`. Before that, contact,
+ * contact_class, contact_quest, contact_list, faq and seo were MyISAM and
+ * silently ignored the transaction boundary.
  */
 export async function withTransaction<T>(
   pool: Pool,

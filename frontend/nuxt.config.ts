@@ -9,6 +9,9 @@ export default defineNuxtConfig({
         // 首頁沒有 route rule = 沿用上面全域 ssr: true 的預設行為：每次 request 都重新 SSR，
         // 不快取。先前用過 isr（3 天，後改 5 分鐘）想降低伺服器負擔，但快取沒有依 TTL
         // revalidate，導致後台編輯輪播圖後前台一直顯示舊內容，因此移除。
+        // 但 @nuxt/content 會自動把 '/' 加進 nitro prerender 清單：首頁在 build 時就被產生成靜態
+        // index.html，執行時不會再 SSR，輪播資料和 NUXT_PUBLIC_* 都停在 build 當下的值。這裡明確關掉。
+        '/': { prerender: false },
         '/admin/**': { swr: 0 } // 後台實時抓資料
     },
     experimental: {

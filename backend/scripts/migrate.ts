@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import mysql from 'mysql2/promise';
+import { buildSslOptions } from '../src/config/database';
 import { loadEnv } from '../src/config/env';
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../migrations');
@@ -50,6 +51,7 @@ async function main(): Promise<void> {
     password: env.DB_PASSWORD,
     database: env.DB_DATABASE,
     multipleStatements: true,
+    ...buildSslOptions(env),
   });
 
   try {

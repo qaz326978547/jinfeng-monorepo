@@ -13,8 +13,9 @@ export interface RateLimiterOptions {
  * improvement over nothing for a public lead-capture endpoint. Intended to
  * be mounted per-route, never globally.
  *
- * `req.ip` is reliable here because app.ts already sets `trust proxy: 1`
- * for Zeabur's reverse proxy.
+ * Keyed on `req.clientIp` (middleware/client-ip.ts): the platform's
+ * client-IP header when CLIENT_IP_HEADER is set, otherwise `req.ip` via
+ * app.ts's `trust proxy: 1`.
  *
  * Known tradeoff: the Map grows by one entry per distinct IP that has ever
  * posted and is never proactively evicted. Acceptable at this endpoint's
@@ -25,7 +26,7 @@ export function createInMemoryRateLimiter({ windowMs, max }: RateLimiterOptions)
   const hits = new Map<string, number[]>();
 
   return (req: Request, res: Response, next: NextFunction): void => {
-    const key = req.ip ?? 'unknown';
+    const key = req.clientIp ?? req.ip ?? 'unknown';
     const now = Date.now();
     const windowStart = now - windowMs;
     const timestamps = (hits.get(key) ?? []).filter((t) => t > windowStart);

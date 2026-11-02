@@ -80,4 +80,64 @@ describe('loadEnv', () => {
       expect(() => loadEnv({ ...VALID_ENV, JWT_EXPIRES_IN: 'never' })).toThrow(/JWT_EXPIRES_IN/);
     });
   });
+
+  describe('DB_SSL / DB_SSL_CA', () => {
+    const CA = '-----BEGIN CERTIFICATE-----\nMIIBfake\n-----END CERTIFICATE-----';
+    const TLS_ENV = { ...VALID_ENV, DB_HOST: 'db-mysql-sgp1-00000.example.com' };
+
+    it('defaults to TLS off', () => {
+      const env = loadEnv(VALID_ENV);
+      expect(env.DB_SSL).toBe(false);
+      expect(env.DB_SSL_CA).toBe('');
+    });
+
+    it('accepts TLS with a PEM CA and a hostname', () => {
+      const env = loadEnv({ ...TLS_ENV, DB_SSL: 'true', DB_SSL_CA: CA });
+      expect(env.DB_SSL).toBe(true);
+      expect(env.DB_SSL_CA).toBe(CA);
+    });
+
+    it('turns literal \\n sequences into newlines (single-line env var)', () => {
+      const env = loadEnv({ ...TLS_ENV, DB_SSL: 'true', DB_SSL_CA: CA.replace(/\n/g, '\\n') });
+      expect(env.DB_SSL_CA).toBe(CA);
+    });
+
+    it('refuses to start with TLS on but no CA certificate', () => {
+      expect(() => loadEnv({ ...TLS_ENV, DB_SSL: 'true' })).toThrow(/DB_SSL_CA/);
+      expect(() => loadEnv({ ...TLS_ENV, DB_SSL: 'true', DB_SSL_CA: 'not a pem' })).toThrow(
+        /DB_SSL_CA/,
+      );
+    });
+
+    it.each(['10.0.0.5', '::1'])(
+      'refuses an IP DB_HOST (%s) with TLS on — the hostname check would not run',
+      (host) => {
+        expect(() => loadEnv({ ...TLS_ENV, DB_HOST: host, DB_SSL: 'true', DB_SSL_CA: CA })).toThrow(
+          /DB_HOST/,
+        );
+      },
+    );
+
+    it.each(['1', 'yes', 'TRUE', ''])('rejects DB_SSL=%s (only "true"/"false")', (value) => {
+      expect(() => loadEnv({ ...TLS_ENV, DB_SSL: value, DB_SSL_CA: CA })).toThrow(/DB_SSL/);
+    });
+  });
+
+  describe('CLIENT_IP_HEADER', () => {
+    it('defaults to empty (use req.ip)', () => {
+      expect(loadEnv(VALID_ENV).CLIENT_IP_HEADER).toBe('');
+    });
+
+    it('normalizes the header name', () => {
+      expect(
+        loadEnv({ ...VALID_ENV, CLIENT_IP_HEADER: ' DO-Connecting-IP ' }).CLIENT_IP_HEADER,
+      ).toBe('do-connecting-ip');
+    });
+
+    it('rejects a value that is not a bare header name', () => {
+      expect(() =>
+        loadEnv({ ...VALID_ENV, CLIENT_IP_HEADER: 'do-connecting-ip: 1.2.3.4' }),
+      ).toThrow(/CLIENT_IP_HEADER/);
+    });
+  });
 });

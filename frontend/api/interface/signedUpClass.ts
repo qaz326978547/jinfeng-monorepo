@@ -14,6 +14,13 @@ export interface AddContactInfo {
     suggest_name: string;
     contactList: ContactListInfo[];
 }
+// POST /contact 成功回應（201）。notification 只描述寄給管理者的通知信，與報名是否成功無關
+export interface AddContactResponse {
+    message: string;
+    data: { id: number } & Record<string, unknown>;
+    notification: 'sent' | 'failed' | 'skipped';
+    replayed: boolean;
+}
 //新增報名課程  參加人員資料
 export interface ContactListInfo {
     name: string;

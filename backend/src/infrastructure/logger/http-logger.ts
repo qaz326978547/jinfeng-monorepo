@@ -6,6 +6,9 @@ export function createHttpLogger(logger: Logger): RequestHandler {
   return pinoHttp({
     logger,
     genReqId: (req) => (req as Request).requestId,
+    // pino-http logs every request header; keep admin JWTs and cookies out of
+    // platform log storage.
+    redact: ['req.headers.authorization', 'req.headers.cookie'],
     customLogLevel: (_req, res, err) => {
       if (err || res.statusCode >= 500) return 'error';
       if (res.statusCode >= 400) return 'warn';
